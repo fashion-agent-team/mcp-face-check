@@ -41,12 +41,14 @@ public final class SyntheticFace {
     public Double yaw = null;
     /** 윤곽 이름 → 얼굴 좌표 점 바꾸기 */
     public final Map<String, UnaryOperator<List<double[]>>> edits = new LinkedHashMap<>();
+    /** 사진에만 적용하는 바꾸기(윤곽점은 그대로). 윤곽점이 그린 화장을 못 따라가는 실제 상황 */
+    public final Map<String, UnaryOperator<List<double[]>>> drawEdits = new LinkedHashMap<>();
     /** true면 ML Kit 이름의 left/right를 바꿔서 보낸다(이름이 반대로 와도 서버가 x로 맞추는지) */
     public boolean swapNames = false;
 
     public Map<String, List<double[]>> localContours() {
         Map<String, List<double[]>> c = new LinkedHashMap<>();
-        c.put("face", ellipse(0, 0.45, 1.0, 1.32, 36));
+        c.put("face", ellipse(0, 0.4, 1.2, 1.4, 36));
         c.put("leftEye", ellipse(-0.5, 0, 0.17, 0.07, 16));
         c.put("rightEye", ellipse(0.5, 0, 0.17, 0.07, 16));
         c.put("leftEyebrowTop", brow(-1, -0.40));
@@ -94,6 +96,7 @@ public final class SyntheticFace {
         g.setColor(background);
         g.fillRect(0, 0, width, height);
         Map<String, List<double[]>> c = localContours();
+        drawEdits.forEach((name, fn) -> c.put(name, fn.apply(c.get(name))));
         fill(g, skin, c.get("face"));
         if (blushLeft != null) {
             fill(g, blushLeft, ellipse(-0.55, 0.55, 0.2, 0.2, 24));

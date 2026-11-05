@@ -60,6 +60,44 @@ class MakeupAnalyzerTest {
     }
 
     @Test
+    @DisplayName("윤곽점은 그대로인데 사진에서만 눈썹을 높게 그려도 픽셀로 잡음")
+    void browDrawnOnlyInImage() {
+        var f = new SyntheticFace();
+        f.drawEdits.put("leftEyebrowTop", shift(0, -0.12));
+        f.drawEdits.put("leftEyebrowBottom", shift(0, -0.12));
+        MakeupResult r = run(f);
+        assertThat(r.symmetry().notes()).containsExactly("왼쪽 눈썹이 오른쪽보다 조금 높게 그려졌어요.");
+        assertThat(check(r, "browHeight").basis()).isEqualTo("pixels");
+    }
+
+    @Test
+    @DisplayName("윤곽점은 그대로인데 사진에서만 윗입술 선을 넘게 그려도 픽셀로 잡음")
+    void lipDrawnOnlyInImage() {
+        var f = new SyntheticFace();
+        f.drawEdits.put("upperLipTop", pts -> pts.stream()
+                .map(p -> p[0] < 0 ? new double[] {p[0], 1.0 + (p[1] - 1.0) * 1.8} : p).toList());
+        MakeupResult r = run(f);
+        assertThat(r.symmetry().notes()).contains("윗입술 선이 왼쪽이 더 도톰하게 그려졌어요.");
+        assertThat(check(r, "upperLipLine").basis()).isEqualTo("pixels");
+    }
+
+    @Test
+    @DisplayName("누드 립처럼 입술이 피부색과 비슷하면 입술 모양은 윤곽점으로 잼")
+    void nudeLipsFallBack() {
+        var f = new SyntheticFace();
+        f.lipLeft = new Color(222, 178, 152);
+        f.lipRight = new Color(222, 178, 152);
+        MakeupResult r = run(f);
+        assertThat(r.symmetry().ok()).isTrue();
+        assertThat(check(r, "lipCorner").basis()).isEqualTo("landmarks");
+        assertThat(check(r, "browHeight").basis()).isEqualTo("pixels");
+    }
+
+    static Check check(MakeupResult r, String name) {
+        return r.symmetry().checks().stream().filter(c -> c.name().equals(name)).findFirst().orElseThrow();
+    }
+
+    @Test
     @DisplayName("ML Kit 이름의 left/right가 반대로 와도 사진 x 위치로 왼쪽을 정함")
     void namesSwapped() {
         var f = new SyntheticFace();
@@ -136,7 +174,7 @@ class MakeupAnalyzerTest {
         MakeupResult r = run(f);
         assertThat(r.symmetry().notes())
                 .containsExactly("왼쪽 볼이 오른쪽보다 더 붉어요. 블러셔가 한쪽에 더 발린 것 같아요.");
-        Check cheek = r.symmetry().checks().stream().filter(c -> c.name().equals("cheekColor")).findFirst().orElseThrow();
+        Check cheek = check(r, "cheekColor");
         assertThat(cheek.side()).isEqualTo("left");
         assertThat(cheek.value()).isGreaterThan(6);
     }

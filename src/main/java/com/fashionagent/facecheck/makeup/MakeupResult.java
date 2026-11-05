@@ -32,7 +32,8 @@ public record MakeupResult(String framing, String lighting, Symmetry symmetry, S
      * @param side  더 높은·긴·두꺼운·붉은·연한 쪽(left | right). 차이가 없으면 null
      * @param value 좌우 차이(항목마다 단위가 다름, FaceCheckProperties.Symmetry 참고)
      * @param limit 이 값을 넘으면 notes에 넣음
+     * @param basis 무엇으로 쟀는지: pixels(사진에서 그려진 모양), landmarks(윤곽점, 픽셀로 나누지 못했을 때), color
      */
-    public record Check(String name, String side, double value, double limit, boolean ok) {
+    public record Check(String name, String side, double value, double limit, boolean ok, String basis) {
     }
 }

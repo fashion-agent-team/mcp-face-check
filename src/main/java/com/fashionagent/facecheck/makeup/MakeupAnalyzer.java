@@ -18,6 +18,9 @@ final class MakeupAnalyzer {
 
     static final String LEFT = "left";
     static final String RIGHT = "right";
+    static final String PIXELS = "pixels";
+    static final String LANDMARKS = "landmarks";
+    static final String COLOR = "color";
 
     private final FaceCheckProperties.Symmetry t;
 
@@ -42,8 +45,8 @@ final class MakeupAnalyzer {
         List<Check> checks = new ArrayList<>();
         List<String> notes = new ArrayList<>();
         List<Note> found = new ArrayList<>();
-        brows(s, frame, checks, found);
-        lips(s, frame, checks, found);
+        brows(s, frame, img, checks, found);
+        lips(s, frame, img, checks, found);
         List<String> skipped = colors(s, frame, img, checks, found);
 
         found.sort(Comparator.comparingDouble(Note::severity).reversed());
@@ -121,90 +124,108 @@ final class MakeupAnalyzer {
 
     // ---------- 눈썹 ----------
 
-    private void brows(Sides s, FaceFrame f, List<Check> checks, List<Note> found) {
+    private void brows(Sides s, FaceFrame f, BufferedImage img, List<Check> checks, List<Note> found) {
         List<Pt> lt = f.local(s.leftBrowTop);
         List<Pt> rt = f.local(s.rightBrowTop);
         List<Pt> lb = f.local(s.leftBrowBottom);
         List<Pt> rb = f.local(s.rightBrowBottom);
         boolean both = lb.size() >= 3 && rb.size() >= 3;
+        double eyeL = width(f.local(s.leftEye));
+        double eyeR = width(f.local(s.rightEye));
+        List<Pt> face = f.local(s.face);
 
-        // 높이: 눈 선(y=0)에서 눈썹 가운데 선까지. 위·아래 윤곽이 다 있으면 둘의 평균
-        double hl = -meanY(both ? concat(lt, lb) : lt);
-        double hr = -meanY(both ? concat(rt, rb) : rt);
-        Check height = check("browHeight", hl - hr, t.browHeight(), checks);
+        // 먼저 사진에서 그려진 눈썹을 나눠 잼. 한쪽이라도 안 되면 둘 다 윤곽점으로
+        MakeupPixels.Brow pl = MakeupPixels.brow(img, f, -1, concat(lt, lb), browPoly(lt, lb), face, eyeL);
+        MakeupPixels.Brow pr = pl == null ? null : MakeupPixels.brow(img, f, 1, concat(rt, rb), browPoly(rt, rb), face, eyeR);
+        MakeupPixels.Brow bl = pl != null && pr != null ? pl : landmarkBrow(lt, lb, both, -1, eyeL);
+        MakeupPixels.Brow br = pl != null && pr != null ? pr : landmarkBrow(rt, rb, both, 1, eyeR);
+        String basis = pl != null && pr != null ? PIXELS : LANDMARKS;
+
+        Check height = check("browHeight", bl.center() - br.center(), t.browHeight(), basis, checks);
         if (!height.ok()) {
             found.add(new Note(height, side(height) + " 눈썹이 " + other(height) + "보다 조금 높게 그려졌어요."));
         }
-
-        // 꼬리: 바깥 끝 점 높이. 높이에서 이미 말했으면 겹쳐 말하지 않음
-        Pt tailL = lt.stream().min(Comparator.comparingDouble(Pt::x)).orElseThrow();
-        Pt tailR = rt.stream().max(Comparator.comparingDouble(Pt::x)).orElseThrow();
-        Check tail = check("browTail", -tailL.y() + tailR.y(), t.browTail(), checks);
+        // 꼬리: 높이에서 이미 말했으면 겹쳐 말하지 않음
+        Check tail = check("browTail", bl.tail() - br.tail(), t.browTail(), basis, checks);
         if (!tail.ok() && height.ok()) {
             found.add(new Note(tail, side(tail) + " 눈썹 꼬리가 " + other(tail) + "보다 올라가 있어요."));
         }
-
-        // 길이: 안쪽 끝 ~ 바깥 끝. 짧은 쪽을 말함
-        double ll = max(lt, Pt::x) - min(lt, Pt::x);
-        double lr = max(rt, Pt::x) - min(rt, Pt::x);
-        Check length = check("browLength", ratio(ll, lr), t.browLength(), checks);
+        Check length = check("browLength", ratio(bl.length(), br.length()), t.browLength(), basis, checks);
         if (!length.ok()) {
             String shorter = LEFT.equals(length.side()) ? RIGHT : LEFT;
             found.add(new Note(length, ko(shorter) + " 눈썹이 " + ko(opposite(shorter)) + "보다 조금 짧게 그려졌어요."));
         }
-
-        if (both) {
-            double tl = meanY(lb) - meanY(lt);
-            double tr = meanY(rb) - meanY(rt);
-            if (tl > 0 && tr > 0) {
-                Check thick = check("browThickness", ratio(tl, tr), t.browThickness(), checks);
-                if (!thick.ok()) {
-                    found.add(new Note(thick, side(thick) + " 눈썹이 " + other(thick) + "보다 두껍게 그려졌어요."));
-                }
+        if (bl.thickness() > 0 && br.thickness() > 0) {
+            Check thick = check("browThickness", ratio(bl.thickness(), br.thickness()), t.browThickness(), basis, checks);
+            if (!thick.ok()) {
+                found.add(new Note(thick, side(thick) + " 눈썹이 " + other(thick) + "보다 두껍게 그려졌어요."));
             }
         }
     }
 
+    /** 윤곽점만으로 잰 눈썹(사진에서 나누지 못했을 때). 위·아래 윤곽이 다 있으면 가운데 선과 두께까지. */
+    private static MakeupPixels.Brow landmarkBrow(List<Pt> top, List<Pt> bottom, boolean both, int sgn, double eyeWidth) {
+        double center = -meanY(both ? concat(top, bottom) : top);
+        Pt tail = sgn < 0 ? top.stream().min(Comparator.comparingDouble(Pt::x)).orElseThrow()
+                : top.stream().max(Comparator.comparingDouble(Pt::x)).orElseThrow();
+        double length = (max(top, Pt::x) - min(top, Pt::x)) / (eyeWidth > 0 ? eyeWidth : 1);
+        double thickness = both ? meanY(bottom) - meanY(top) : 0;
+        return new MakeupPixels.Brow(center, -tail.y(), length, thickness);
+    }
+
+    private static List<Pt> browPoly(List<Pt> top, List<Pt> bottom) {
+        List<Pt> low = bottom.size() >= 3 ? bottom : top.stream().map(p -> new Pt(p.x(), p.y() + 0.08)).toList();
+        return MakeupAnalyzer.polygon(top, low);
+    }
+
+    private static double width(List<Pt> pts) {
+        return pts.isEmpty() ? 0 : max(pts, Pt::x) - min(pts, Pt::x);
+    }
+
     // ---------- 입술 ----------
 
-    private void lips(Sides s, FaceFrame f, List<Check> checks, List<Note> found) {
+    private void lips(Sides s, FaceFrame f, BufferedImage img, List<Check> checks, List<Note> found) {
         List<Pt> top = f.local(s.upperLipTop);
         List<Pt> bottom = f.local(s.lowerLipBottom);
-        List<Pt> all = concat(concat(top, bottom), concat(f.local(s.upperLipBottom), f.local(s.lowerLipTop)));
-        Pt cl = all.stream().min(Comparator.comparingDouble(Pt::x)).orElseThrow();
-        Pt cr = all.stream().max(Comparator.comparingDouble(Pt::x)).orElseThrow();
-        double halfL = -cl.x();
-        double halfR = cr.x();
-        if (halfL <= 0.05 || halfR <= 0.05) {
+        MakeupPixels.Lips px = MakeupPixels.lips(img, f, polygon(top, bottom));
+        MakeupPixels.Lips lm = px != null ? px : landmarkLips(s, f, top, bottom);
+        if (lm == null) {
             return; // 입이 가운데 선 한쪽에만 있으면(돌린 얼굴) 비교하지 않음
         }
+        String basis = px != null ? PIXELS : LANDMARKS;
 
-        // 입꼬리 높이: y가 작을수록 위
-        Check corner = check("lipCorner", cr.y() - cl.y(), t.lipCorner(), checks);
+        Check corner = check("lipCorner", lm.corner(), t.lipCorner(), basis, checks);
         if (!corner.ok()) {
             found.add(new Note(corner, "입술 " + side(corner) + " 끝이 " + other(corner) + " 끝보다 올라가 있어요."));
         }
-
-        Check width = check("lipHalfWidth", ratio(halfL, halfR), t.lipHalfWidth(), checks);
+        Check width = check("lipHalfWidth", ratio(lm.halfLeft(), lm.halfRight()), t.lipHalfWidth(), basis, checks);
         if (!width.ok()) {
             found.add(new Note(width, "입술 선이 " + side(width) + "으로 더 길게 그려졌어요."));
         }
-
-        // 윗입술·아랫입술 선: 두 입꼬리를 잇는 선에서 얼마나 위(아래)로 그렸는지, 같은 비율 위치끼리 비교
-        double[] up = lineHeights(top, cl, cr, -1);
-        if (up != null) {
-            Check c = check("upperLipLine", ratio(up[0], up[1]), t.lipLine(), checks);
+        if (lm.up() != null && lm.up()[0] > 0.02 && lm.up()[1] > 0.02) {
+            Check c = check("upperLipLine", ratio(lm.up()[0], lm.up()[1]), t.lipLine(), basis, checks);
             if (!c.ok()) {
                 found.add(new Note(c, "윗입술 선이 " + side(c) + "이 더 도톰하게 그려졌어요."));
             }
         }
-        double[] low = lineHeights(bottom, cl, cr, 1);
-        if (low != null) {
-            Check c = check("lowerLipLine", ratio(low[0], low[1]), t.lipLine(), checks);
+        if (lm.down() != null && lm.down()[0] > 0.02 && lm.down()[1] > 0.02) {
+            Check c = check("lowerLipLine", ratio(lm.down()[0], lm.down()[1]), t.lipLine(), basis, checks);
             if (!c.ok()) {
                 found.add(new Note(c, "아랫입술 선이 " + side(c) + "이 더 도톰하게 그려졌어요."));
             }
         }
+    }
+
+    /** 윤곽점만으로 잰 입술(누드 립처럼 색으로 나눌 수 없을 때). */
+    private static MakeupPixels.Lips landmarkLips(Sides s, FaceFrame f, List<Pt> top, List<Pt> bottom) {
+        List<Pt> all = concat(concat(top, bottom), concat(f.local(s.upperLipBottom), f.local(s.lowerLipTop)));
+        Pt cl = all.stream().min(Comparator.comparingDouble(Pt::x)).orElseThrow();
+        Pt cr = all.stream().max(Comparator.comparingDouble(Pt::x)).orElseThrow();
+        if (-cl.x() <= 0.05 || cr.x() <= 0.05) {
+            return null;
+        }
+        return new MakeupPixels.Lips(-cl.x(), cr.x(), cr.y() - cl.y(), lineHeights(top, cl, cr, -1),
+                lineHeights(bottom, cl, cr, 1));
     }
 
     /** 입꼬리 선에서 윤곽까지 높이의 좌·우 평균. dir -1이면 위쪽(윗입술), 1이면 아래쪽. */
@@ -233,7 +254,7 @@ final class MakeupAnalyzer {
             }
             out[side] = sum / n;
         }
-        return out[0] > 0.02 && out[1] > 0.02 ? out : null;
+        return out;
     }
 
     private static double interpolate(List<double[]> uv, double u) {
@@ -266,7 +287,7 @@ final class MakeupAnalyzer {
         if (Math.abs(ml.l() - mr.l()) > t.unevenLight()) {
             return List.of("cheekColor", "lipColor");
         }
-        Check cheek = check("cheekColor", ml.a() - mr.a(), t.cheekRedness(), checks);
+        Check cheek = check("cheekColor", ml.a() - mr.a(), t.cheekRedness(), COLOR, checks);
         if (!cheek.ok()) {
             found.add(new Note(cheek, side(cheek) + " 볼이 " + other(cheek) + "보다 더 붉어요. 블러셔가 한쪽에 더 발린 것 같아요."));
         }
@@ -281,7 +302,7 @@ final class MakeupAnalyzer {
         // 더 연한(밝은) 쪽을 side로
         String lighter = ll.l() >= lr.l() ? LEFT : RIGHT;
         boolean ok = de <= t.lipColor();
-        Check lip = new Check("lipColor", lighter, round(de), t.lipColor(), ok);
+        Check lip = new Check("lipColor", lighter, round(de), t.lipColor(), ok, COLOR);
         checks.add(lip);
         if (!ok) {
             found.add(new Note(lip, "입술 색이 " + ko(lighter) + "이 " + ko(opposite(lighter)) + "보다 연해요."));
@@ -346,7 +367,7 @@ final class MakeupAnalyzer {
     }
 
     /** 위 윤곽(왼→오) + 아래 윤곽(오→왼)으로 닫힌 다각형. */
-    private static List<Pt> polygon(List<Pt> upper, List<Pt> lower) {
+    static List<Pt> polygon(List<Pt> upper, List<Pt> lower) {
         List<Pt> out = new ArrayList<>(upper.stream().sorted(Comparator.comparingDouble(Pt::x)).toList());
         out.addAll(lower.stream().sorted(Comparator.comparingDouble(Pt::x).reversed()).toList());
         return out;
@@ -375,10 +396,10 @@ final class MakeupAnalyzer {
     // ---------- 공통 ----------
 
     /** diff > 0이면 left가 더 큼. */
-    private static Check check(String name, double diff, double limit, List<Check> checks) {
+    private static Check check(String name, double diff, double limit, String basis, List<Check> checks) {
         double value = round(Math.abs(diff));
         String side = value == 0 ? null : diff > 0 ? LEFT : RIGHT;
-        Check c = new Check(name, side, value, limit, Math.abs(diff) <= limit);
+        Check c = new Check(name, side, value, limit, Math.abs(diff) <= limit, basis);
         checks.add(c);
         return c;
     }

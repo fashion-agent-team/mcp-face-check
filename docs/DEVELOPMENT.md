@@ -45,7 +45,12 @@ ML Kit Face Detection의 **윤곽(contour) 모드** 결과를 상수 이름 came
 2. **구도**(하나라도 걸리면 `framing`만 돌려주고 끝): 얼굴 상자가 사진 밖으로 나감 → 그 방향으로 폰 옮기기, 얼굴 너비 < 사진 30% → 가까이,
    `|yaw|` > 12° 또는 얼굴 외곽이 한쪽으로 15% 넘게 쏠림 → 정면 보기, 기울기 > 25° → 고개 똑바로.
 3. **밝기**: 눈 아래~입 위 평균 L* < 28 → `lighting: "dark"`.
-4. **모양**(IOD 단위, ratio는 큰 쪽 대비)
+4. **모양**(IOD 단위, ratio는 큰 쪽 대비). 윤곽점은 얼굴 뼈대를 따라가서 **그린 눈썹·입술 선을 거의 따라가지 않습니다**
+   (실제 사진 비교: 눈썹을 0.12 올려 그려도 윤곽점은 0.05만 움직였고, 입술 선을 넘게 그린 건 0). 그래서 윤곽점으로 어디를 볼지만 정하고,
+   모양은 사진 픽셀에서 잽니다(`MakeupPixels`, `checks[].basis = "pixels"`).
+   - 눈썹: 눈썹 위 띠에서 주변 피부(가로 0.1 칸마다 밝은 쪽 75% 값)보다 L*가 12 이상 어두운 픽셀 → 덩어리 중 "크고 윤곽점 눈썹 가운데에 가까운" 것.
+     길이는 같은 쪽 눈 너비로 나눠 고개가 조금 돌아도 원근 차이를 줄입니다.
+   - 입술: 입술 다각형 안·밖의 a*(붉은 정도) 가운데 값으로 나눔. 입술과 피부 a* 차이가 4보다 작으면(누드 립) 나누지 못하므로 윤곽점으로 잽니다(`basis = "landmarks"`).
 
    | 항목 | 계산 | 기준 | 읽는 문장 |
    | --- | --- | --- | --- |
@@ -63,7 +68,7 @@ ML Kit Face Detection의 **윤곽(contour) 모드** 결과를 상수 이름 came
    - `lipColor`: 입술 안(벌린 입 안쪽 제외)을 가운데 선으로 나눠 ΔE76 > 10 → 밝은 쪽을 "입술 색이 오른쪽이 왼쪽보다 연해요."
 6. 기준을 넘은 항목을 (차이 ÷ 기준) 큰 순서로 최대 3문장 `notes`에 넣습니다. `checks`에는 모든 항목의 값이 남아 기준값을 맞출 때 씁니다.
 
-기준값은 처음 정한 값입니다. 실제 셀카로 맞춰 가며 `application.yml`의 `face.symmetry.*`로 바꿉니다(이름은 `FaceCheckProperties` 참고).
+기준값은 처음 정한 값입니다. 실제 사진(웃는 얼굴) 한 장에서도 원래 비대칭(입꼬리 한쪽 웃음, 머리카락에 가린 눈썹 꼬리)이 기준을 넘었습니다. 실제 셀카로 맞춰 가며 `application.yml`의 `face.symmetry.*`로 바꿉니다(이름은 `FaceCheckProperties` 참고).
 사람 얼굴은 원래 조금 비대칭이고 표정(한쪽 웃음, 눈썹 올림)도 차이로 잡히므로, 앱 안내에서 "무표정으로 정면"을 말해 주는 게 좋습니다.
 
 ## 코드 구성
@@ -73,6 +78,7 @@ ML Kit Face Detection의 **윤곽(contour) 모드** 결과를 상수 이름 came
 | `FaceTools` | MCP 도구 `face_makeup_check`, `teeth_check` (`@Tool`). 실패하면 `{"error": {"code", "message"}}` |
 | `makeup/MakeupCheckService` | 윤곽점이 다 있으면 규칙, 없으면 GPT 폴백 |
 | `makeup/MakeupAnalyzer` | 위 대칭 규칙 |
+| `makeup/MakeupPixels` | 사진에서 그려진 눈썹·입술 모양 재기(나누지 못하면 null → 윤곽점) |
 | `makeup/FaceFrame` | 두 눈 기준 얼굴 좌표 |
 | `makeup/OpenAiMakeupVision` | GPT 비전 폴백 (Chat Completions + JSON 스키마) |
 | `teeth/TeethCheckService` | mouthBox 확인·자르기·밝기 → `TeethClassifier` |
