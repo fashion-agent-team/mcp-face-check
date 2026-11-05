@@ -4,6 +4,9 @@ server:
 spring:
   application:
     name: mcp-face-check
+  config:
+    # training/train.py가 라벨 붙인 셀카로 학습한 판단 기준값(face.symmetry.*). 없으면 FaceCheckProperties 기본값
+    import: optional:classpath:symmetry-thresholds.yml
   ai:
     mcp:
       server:
@@ -18,12 +21,6 @@ spring:
 face:
   # 사진 base64를 풀었을 때 최대 크기. 앱은 약 6MB까지 보낸다(openapi.yaml TurnRequest.image).
   max-image-bytes: 8MB
-  # 윤곽점이 없을 때만 GPT 비전으로 본다. 키가 비어 있으면 no_landmarks 오류를 돌려준다.
-  openai:
-    api-key: ${OPENAI_API_KEY:}
-    model: ${OPENAI_MODEL:gpt-5.4-mini}
-    base-url: ${OPENAI_BASE_URL:https://api.openai.com}
-    timeout: 30s
 
 management:
   endpoints:

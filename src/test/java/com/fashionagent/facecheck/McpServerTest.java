@@ -18,8 +18,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.web.client.RestClient;
 
-/** 실제로 서버를 띄우고 MCP 클라이언트로 /mcp에 붙어 본다(agent가 붙는 방식과 같음). OpenAI 키 없이. */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = "face.openai.api-key=")
+/** 실제로 서버를 띄우고 MCP 클라이언트로 /mcp에 붙어 본다(agent가 붙는 방식과 같음). */
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {})
 class McpServerTest {
 
     @LocalServerPort
@@ -62,6 +62,15 @@ class McpServerTest {
     }
 
     @Test
+    @DisplayName("멈춘 1초 동안의 여러 장(frames)을 같이 보내면 중간값으로 판단")
+    void frames() {
+        var f = new SyntheticFace();
+        Map<String, Object> frame = Map.of("imageBase64", f.jpegBase64(), "landmarks", f.landmarks());
+        assertThat(text(call("face_makeup_check", Map.of("imageBase64", f.jpegBase64(), "landmarks", f.landmarks(),
+                "frames", List.of(frame, frame))))).contains("\"ok\":true", "\"frames\":3");
+    }
+
+    @Test
     @DisplayName("PNG도 읽음, 좌우 같으면 ok")
     void png() {
         var f = new SyntheticFace();
@@ -71,7 +80,7 @@ class McpServerTest {
     }
 
     @Test
-    @DisplayName("윤곽점이 없거나 모자라고 OpenAI 키도 없으면 no_landmarks")
+    @DisplayName("윤곽점이 없거나 모자라면 no_landmarks (GPT로 대신 보지 않음)")
     void noLandmarks() {
         var f = new SyntheticFace();
         assertThat(text(call("face_makeup_check", Map.of("imageBase64", f.jpegBase64()))))

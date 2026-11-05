@@ -1,6 +1,5 @@
 package com.fashionagent.facecheck;
 
-import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 import org.springframework.util.unit.DataSize;
@@ -12,19 +11,7 @@ import org.springframework.util.unit.DataSize;
 @ConfigurationProperties("face")
 public record FaceCheckProperties(
         @DefaultValue("8MB") DataSize maxImageBytes,
-        @DefaultValue OpenAi openai,
         @DefaultValue Symmetry symmetry) {
-
-    public record OpenAi(
-            @DefaultValue("") String apiKey,
-            @DefaultValue("gpt-5.4-mini") String model,
-            @DefaultValue("https://api.openai.com") String baseUrl,
-            @DefaultValue("30s") Duration timeout) {
-
-        public boolean enabled() {
-            return apiKey != null && !apiKey.isBlank();
-        }
-    }
 
     public record Symmetry(
             /** 눈썹 높이(눈 중심 ~ 눈썹) 좌우 차이, IOD. */

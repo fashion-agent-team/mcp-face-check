@@ -3,7 +3,7 @@
 ## 필요한 것
 
 - Java 21 (Gradle은 `./gradlew`가 받아 옵니다)
-- DB·키 없이 돌아갑니다. `OPENAI_API_KEY`는 윤곽점이 없을 때 쓰는 GPT 폴백에만 필요합니다.
+- DB·키 없이 돌아갑니다. GPT는 쓰지 않습니다.
 
 ## 실행
 
@@ -11,12 +11,14 @@
 ./gradlew bootRun     # http://localhost:8094, MCP는 /mcp (Streamable HTTP)
 ./gradlew test        # 가짜 얼굴(사진 + 윤곽점)로 규칙 확인 + 실제 /mcp 접속
 docker build -t ghcr.io/fashion-agent-team/mcp-face-check:dev .
+python3 training/train.py training/data/features.csv --apply   # 기준값 다시 학습
 ```
 
-| 환경 변수 | 기본값 | 뜻 |
-| --- | --- | --- |
-| `OPENAI_API_KEY` | (비움) | 있으면 윤곽점 없는 사진을 GPT 비전으로 봄 |
-| `OPENAI_MODEL` | `gpt-5.4-mini` | agent와 같은 모델 |
+## 여러 장 (실시간으로 비추기)
+
+앱은 얼굴을 비추는 동안 ML Kit로 구도를 안내하고, 잘 잡혀 1초 멈추면 그동안 3~5장을 보냅니다(첫 장은 `imageBase64`·`landmarks`, 나머지는 `frames`).
+서버는 장마다 잰 뒤 항목별로 왼쪽 +, 오른쪽 −로 바꾼 값의 **중간값**으로 다시 판단합니다(`symmetry.frames` = 쓴 장 수).
+절반 넘는 장이 구도·밝기 문제면 그 안내를 돌려주고, 한두 장만 문제면 나머지로 판단합니다. 순간 표정이나 흔들림에 덜 속습니다.
 
 ## landmarks (앱이 보내는 것)
 
@@ -35,7 +37,7 @@ ML Kit Face Detection의 **윤곽(contour) 모드** 결과를 상수 이름 came
 | `leftCheek`, `rightCheek` | LEFT/RIGHT_CHEEK (1점) | 볼 색 위치(없으면 어림) |
 | `yaw`, `roll` | headEulerAngleY, headEulerAngleZ | 정면·기울기 확인 |
 
-필수가 하나라도 없으면 윤곽점이 없는 것으로 봅니다. ML Kit의 left/right가 사진 기준인지 얼굴 주인 기준인지 헷갈리기 쉬워서,
+필수가 하나라도 없으면 `no_landmarks`(다시 찍기)입니다. ML Kit의 left/right가 사진 기준인지 얼굴 주인 기준인지 헷갈리기 쉬워서,
 **서버는 이름을 믿지 않고 두 눈의 x 위치로 왼쪽을 다시 정합니다.**
 
 ## 대칭 규칙
@@ -68,7 +70,9 @@ ML Kit Face Detection의 **윤곽(contour) 모드** 결과를 상수 이름 came
    - `lipColor`: 입술 안(벌린 입 안쪽 제외)을 가운데 선으로 나눠 ΔE76 > 10 → 밝은 쪽을 "입술 색이 오른쪽이 왼쪽보다 연해요."
 6. 기준을 넘은 항목을 (차이 ÷ 기준) 큰 순서로 최대 3문장 `notes`에 넣습니다. `checks`에는 모든 항목의 값이 남아 기준값을 맞출 때 씁니다.
 
-기준값은 처음 정한 값입니다. 실제 사진(웃는 얼굴) 한 장에서도 원래 비대칭(입꼬리 한쪽 웃음, 머리카락에 가린 눈썹 꼬리)이 기준을 넘었습니다. 실제 셀카로 맞춰 가며 `application.yml`의 `face.symmetry.*`로 바꿉니다(이름은 `FaceCheckProperties` 참고).
+기준값은 **라벨 붙인 셀카로 학습**해서 정합니다([training/README.md](../training/README.md)): 서버가 잰 값 → 항목마다 로지스틱 회귀 → 확률 0.5가 되는 값을
+`src/main/resources/symmetry-thresholds.yml`로 저장, 서버가 시작할 때 읽습니다. 그 파일이 없으면 아래 처음 값을 씁니다.
+처음 값은 손으로 정한 값입니다. 실제 사진(웃는 얼굴) 한 장에서도 원래 비대칭(입꼬리 한쪽 웃음, 머리카락에 가린 눈썹 꼬리)이 기준을 넘었습니다. 실제 셀카로 맞춰 가며 `application.yml`의 `face.symmetry.*`로 바꿉니다(이름은 `FaceCheckProperties` 참고).
 사람 얼굴은 원래 조금 비대칭이고 표정(한쪽 웃음, 눈썹 올림)도 차이로 잡히므로, 앱 안내에서 "무표정으로 정면"을 말해 주는 게 좋습니다.
 
 ## 코드 구성
@@ -76,16 +80,14 @@ ML Kit Face Detection의 **윤곽(contour) 모드** 결과를 상수 이름 came
 | 파일 | 하는 일 |
 | --- | --- |
 | `FaceTools` | MCP 도구 `face_makeup_check`, `teeth_check` (`@Tool`). 실패하면 `{"error": {"code", "message"}}` |
-| `makeup/MakeupCheckService` | 윤곽점이 다 있으면 규칙, 없으면 GPT 폴백 |
 | `makeup/MakeupAnalyzer` | 위 대칭 규칙 |
 | `makeup/MakeupPixels` | 사진에서 그려진 눈썹·입술 모양 재기(나누지 못하면 null → 윤곽점) |
 | `makeup/FaceFrame` | 두 눈 기준 얼굴 좌표 |
-| `makeup/OpenAiMakeupVision` | GPT 비전 폴백 (Chat Completions + JSON 스키마) |
-| `teeth/TeethCheckService` | mouthBox 확인·자르기·밝기 → `TeethClassifier` |
-| `teeth/TeethClassifier` | **치아 분류 모델이 들어갈 자리** |
+| `makeup/MakeupCheckService` | 여러 장 중간값으로 합치기 |
+| `training/` | 기준값 학습(Python): `features.py` → `train.py` |
 | `image/Images` | base64 풀기(JPEG·PNG, 8MB), sRGB → CIELAB |
 
 ## 오류 코드
 
-`no_image`, `bad_image`, `bad_request`(윤곽점·mouthBox가 비율이 아님), `no_landmarks`(윤곽점이 없고 GPT 키도 없음),
-`not_ready`(치아 분류기가 아직 없음), `upstream_failed`(GPT 실패 등).
+`no_image`, `bad_image`, `bad_request`(윤곽점이 비율이 아님, 6장 이상), `no_landmarks`(윤곽점이 없거나 모자람 → 다시 찍기),
+`not_ready`(teeth_check, 정지원 님 작업 전), `upstream_failed`.
