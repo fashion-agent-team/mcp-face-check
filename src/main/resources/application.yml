@@ -1,0 +1,32 @@
+server:
+  port: 8094
+
+spring:
+  application:
+    name: mcp-face-check
+  ai:
+    mcp:
+      server:
+        name: mcp-face-check
+        version: 0.1.0
+        type: sync
+        protocol: streamable
+        streamable-http:
+          mcp-endpoint: /mcp
+        instructions: 얼굴 사진으로 화장 대칭(face_makeup_check)과 이에 낀 것(teeth_check)을 확인하는 서버입니다. 사용자가 "얼굴 확인해 줘"라고 할 때만 씁니다.
+
+face:
+  # 사진 base64를 풀었을 때 최대 크기. 앱은 약 6MB까지 보낸다(openapi.yaml TurnRequest.image).
+  max-image-bytes: 8MB
+  # 윤곽점이 없을 때만 GPT 비전으로 본다. 키가 비어 있으면 no_landmarks 오류를 돌려준다.
+  openai:
+    api-key: ${OPENAI_API_KEY:}
+    model: ${OPENAI_MODEL:gpt-5.4-mini}
+    base-url: ${OPENAI_BASE_URL:https://api.openai.com}
+    timeout: 30s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
