@@ -3,6 +3,7 @@ package com.fashionagent.facecheck;
 import com.fashionagent.facecheck.makeup.FaceLandmarks;
 import com.fashionagent.facecheck.makeup.MakeupCheckService;
 import com.fashionagent.facecheck.makeup.MakeupFrame;
+import com.fashionagent.facecheck.teeth.TeethCheckService;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
@@ -23,9 +24,11 @@ public class FaceTools {
     private static final Logger log = LoggerFactory.getLogger(FaceTools.class);
 
     private final MakeupCheckService makeup;
+    private final TeethCheckService teeth;
 
-    public FaceTools(MakeupCheckService makeup) {
+    public FaceTools(MakeupCheckService makeup, TeethCheckService teeth) {
         this.makeup = makeup;
+        this.teeth = teeth;
     }
 
     @Tool(name = "face_makeup_check", description = """
@@ -41,13 +44,14 @@ public class FaceTools {
     }
 
     @Tool(name = "teeth_check", description = """
-            입 가까이에서 찍은 사진 한 장으로 이 사이에 낀 것을 확인합니다. 사용자가 "얼굴 확인해 줘"에서 이를 고르면 부르세요. \
-            framing이 있으면 그 안내를 읽고 다시 찍고, 아니면 teeth.note를 읽어 줍니다.""")
+            입 가까이에서 찍은 사진 한 장으로 이 사이에 낀 것을 확인합니다(우리가 학습한 모델을 이 서버에서 돌림, 사진은 외부로 \
+            보내지 않음). 사용자가 "얼굴 확인해 줘"에서 이를 고르면 부르세요. framing이 있으면 그 안내를 읽고 다시 찍고, \
+            아니면 teeth.note를 읽어 줍니다. teeth.foreignObject가 null(애매함)이면 note를 읽은 뒤 "가족에게 사진 보내서 \
+            물어볼까요?"라고 묻고, 사용자가 원할 때만 helper_ask로 넘깁니다.""")
     public Object teethCheck(
             @ToolParam(description = "셀카 방향으로 좌우를 맞춘 JPEG 사진 base64. agent가 넣습니다.") String imageBase64,
-            @ToolParam(required = false, description = "앱이 ML Kit 입술 윤곽으로 구한 입 영역(비율) {x, y, w, h}. 없으면 서버가 사진에서 찾습니다.") Map<String, Double> mouthBox) {
-        // 치아 이물질 판단은 정지원 님 담당입니다. 들어오기 전까지 도구 자리만 둡니다.
-        return error("not_ready", "이 확인은 아직 준비 중이에요.");
+            @ToolParam(required = false, description = "앱이 ML Kit 입술 윤곽 UPPER_LIP_BOTTOM + LOWER_LIP_TOP 점으로 구한 입 안쪽 박스(비율) {x, y, w, h}. 없으면 사진 가운데를 봅니다.") Map<String, Double> mouthBox) {
+        return run("teeth_check", () -> teeth.check(imageBase64, mouthBox));
     }
 
     private Object run(String tool, Supplier<Object> body) {

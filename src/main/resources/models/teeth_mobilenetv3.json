@@ -1,0 +1,25 @@
+{
+  "arch": "mobilenet_v3_small",
+  "size": 320,
+  "mean": [
+    0.485,
+    0.456,
+    0.406
+  ],
+  "std": [
+    0.229,
+    0.224,
+    0.225
+  ],
+  "threshold": 0.5,
+  "output": "logits[:,0]; sigmoid >= threshold means food",
+  "crop": {
+    "source": "mouths_tight",
+    "crop_rule": "inner_lip_bbox",
+    "crop_margin": 0.18,
+    "reframe_margin": null,
+    "faces": 1310,
+    "variants": 2,
+    "val_share": 0.2
+  }
+}

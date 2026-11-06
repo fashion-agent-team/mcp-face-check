@@ -16,7 +16,8 @@ import org.springframework.util.unit.DataSize;
 class MakeupCheckServiceTest {
 
     final MakeupCheckService service = new MakeupCheckService(
-            new FaceCheckProperties(DataSize.ofMegabytes(8), MakeupAnalyzerTest.T));
+            new FaceCheckProperties(DataSize.ofMegabytes(8), MakeupAnalyzerTest.T,
+                    com.fashionagent.facecheck.teeth.TeethCheckServiceTest.T));
 
     static MakeupFrame frame(SyntheticFace f) {
         return new MakeupFrame(f.jpegBase64(), MakeupAnalyzerTest.JSON.convertValue(f.landmarks(), FaceLandmarks.class));

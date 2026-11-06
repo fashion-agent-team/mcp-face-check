@@ -26,6 +26,8 @@ dependencyManagement {
 dependencies {
     implementation 'org.springframework.ai:spring-ai-starter-mcp-server-webmvc'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    // 치아 이물질 분류 모델(우리가 학습한 ONNX)을 서버 안에서 돌림. 리눅스 x64·맥(arm64) 네이티브 포함
+    implementation 'com.microsoft.onnxruntime:onnxruntime:1.20.0'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.boot:spring-boot-starter-restclient'
