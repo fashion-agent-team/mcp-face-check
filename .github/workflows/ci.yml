@@ -1,0 +1,46 @@
+# PR과 develop·main에 올라온 코드를 자동으로 테스트합니다. 실패하면 PR에 빨간 X가 뜹니다.
+# 코드(gradlew)가 아직 없으면 테스트 단계는 건너뜁니다.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [develop, main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 코드가 있는지 확인
+        id: code
+        run: |
+          if [ -f gradlew ]; then echo "has=true" >> "$GITHUB_OUTPUT"; else echo "has=false" >> "$GITHUB_OUTPUT"; echo "gradlew가 없어서 테스트를 건너뜁니다."; fi
+
+      - uses: actions/setup-java@v4
+        if: steps.code.outputs.has == 'true'
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+        if: steps.code.outputs.has == 'true'
+
+      - name: 테스트
+        if: steps.code.outputs.has == 'true'
+        run: |
+          chmod +x gradlew
+          ./gradlew test --no-daemon
+      - name: 실패한 테스트 보고서 올리기
+        if: failure() && steps.code.outputs.has == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: build/reports/tests/test
+          retention-days: 7
