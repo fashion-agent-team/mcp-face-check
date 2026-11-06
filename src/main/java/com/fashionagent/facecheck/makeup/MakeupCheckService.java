@@ -88,7 +88,7 @@ public class MakeupCheckService {
         });
         MakeupResult r = MakeupAnalyzer.result(merged, skipped, maxNotes);
         return new MakeupResult(r.framing(), r.lighting(), new MakeupResult.Symmetry(r.symmetry().ok(),
-                r.symmetry().notes(), merged, skipped, usable.size()), r.source());
+                r.symmetry().notes(), merged, skipped, usable.size()));
     }
 
     private static double median(double[] sorted) {

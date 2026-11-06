@@ -59,8 +59,7 @@ final class MakeupAnalyzer {
                 .limit(maxNotes)
                 .map(MakeupAnalyzer::note)
                 .toList();
-        return new MakeupResult(null, "ok", new MakeupResult.Symmetry(notes.isEmpty(), notes, checks, skipped),
-                MakeupResult.MODEL);
+        return new MakeupResult(null, "ok", new MakeupResult.Symmetry(notes.isEmpty(), notes, checks, skipped));
     }
 
     /** 항목 하나를 읽어 줄 문장. side는 더 높은·긴·두꺼운·붉은·연한 쪽. */

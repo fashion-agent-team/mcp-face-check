@@ -39,7 +39,6 @@ class MakeupAnalyzerTest {
         MakeupResult r = run(f);
         assertThat(r.framing()).isNull();
         assertThat(r.lighting()).isEqualTo("ok");
-        assertThat(r.source()).isEqualTo("model");
         assertThat(r.symmetry().notes()).isEmpty();
         assertThat(r.symmetry().ok()).isTrue();
         assertThat(r.symmetry().skipped()).isEmpty();
