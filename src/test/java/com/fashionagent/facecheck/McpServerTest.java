@@ -19,7 +19,9 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.web.client.RestClient;
 
 /** 실제로 서버를 띄우고 MCP 클라이언트로 /mcp에 붙어 본다(agent가 붙는 방식과 같음). */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {})
+// 치아 모델은 시험용 작은 모델(logit = 4 × 평균)로 바꿔 끼운다(실제 모델 유무와 상관없이 같은 결과).
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
+        "face.teeth.model=classpath:models/tiny_mean.onnx", "face.teeth.input-size=32"})
 class McpServerTest {
 
     @LocalServerPort
@@ -106,11 +108,16 @@ class McpServerTest {
     }
 
     @Test
-    @DisplayName("teeth_check는 분류 모델이 들어오기 전까지 not_ready")
-    void teethNotReady() {
-        assertThat(text(call("teeth_check", Map.of("imageBase64", new SyntheticFace().jpegBase64(),
-                "mouthBox", Map.of("x", 0.3, "y", 0.55, "w", 0.4, "h", 0.2)))))
-                .contains("\"code\":\"not_ready\"");
+    @DisplayName("teeth_check: 입 사진 → framing·lighting·teeth(foreignObject, confidence, note), 입 덜 벌리면 다시 찍기")
+    void teeth() {
+        String photo = new SyntheticFace().jpegBase64();
+        String out = text(call("teeth_check", Map.of("imageBase64", photo,
+                "mouthBox", Map.of("x", 0.3, "y", 0.55, "w", 0.4, "h", 0.08))));
+        assertThat(out).contains("\"framing\":null", "\"teeth\":{", "\"foreignObject\"", "\"confidence\"", "\"note\"")
+                .doesNotContain("source", "error");
+        assertThat(text(call("teeth_check", Map.of("imageBase64", photo,
+                "mouthBox", Map.of("x", 0.3, "y", 0.55, "w", 0.4, "h", 0.01)))))
+                .contains("\"framing\":\"이가 잘 안 보여요");
     }
 
     @Test
