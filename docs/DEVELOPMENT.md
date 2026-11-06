@@ -75,6 +75,23 @@ ML Kit Face Detection의 **윤곽(contour) 모드** 결과를 상수 이름 came
 처음 값은 손으로 정한 값입니다. 실제 사진(웃는 얼굴) 한 장에서도 원래 비대칭(입꼬리 한쪽 웃음, 머리카락에 가린 눈썹 꼬리)이 기준을 넘었습니다. 실제 셀카로 맞춰 가며 `application.yml`의 `face.symmetry.*`로 바꿉니다(이름은 `FaceCheckProperties` 참고).
 사람 얼굴은 원래 조금 비대칭이고 표정(한쪽 웃음, 눈썹 올림)도 차이로 잡히므로, 앱 안내에서 "무표정으로 정면"을 말해 주는 게 좋습니다.
 
+## 치아 (teeth_check)
+
+우리가 학습한 분류 모델 `src/main/resources/models/teeth_mobilenetv3.onnx`(MobileNetV3-Small, 입력 320)를 ONNX Runtime Java로 이 서버 안에서 돌립니다.
+모델 파일이 없으면 서버는 뜨고 `teeth_check`만 `not_ready`를 돌려줍니다. 위치는 `face.teeth.model`로 바꿀 수 있습니다.
+
+1. **구도**(`mouthBox`가 있을 때, 하나라도 걸리면 `framing`만 돌려주고 끝): 박스가 사진 밖으로 박스 크기의 10% 넘게 나감 → 그 방향 안내,
+   입 너비 < 사진 너비 15% → 가까이, 입 안쪽 높이 ÷ 너비 < 0.10 → "입을 더 벌리고 '이~'" (학습 데이터가 0.10 이상이라 그보다 덜 벌린 사진은 판단하지 않음).
+2. **자르기**(학습과 같은 규칙, `teeth/MouthCrop`): `mouthBox`(ML Kit `UPPER_LIP_BOTTOM` + `LOWER_LIP_TOP` 점의 박스) 중심에서 긴 변 × 1.36 정사각형,
+   사진 밖은 거울 패딩 → 384 → 320. RGB, 0~1, ImageNet mean/std, NCHW float32. `mouthBox`가 없으면 사진 가운데(짧은 변의 80%)를 봅니다.
+3. **밝기**: 크롭 평균 L* < 25 → `lighting: "dark"`, 판단하지 않음.
+4. **판단**: p = sigmoid(logit). p ≥ 0.7 → `foreignObject: true`, p ≤ 0.3 → `false`, 그 사이 → `null`(애매함, agent가 가족에게 물어볼지 제안).
+   기준은 첫 값이고 실제 사진으로 평가한 뒤 `face.teeth.yes-threshold`, `no-threshold`로 맞춥니다.
+
+모델 성능(합성 데이터 검증 1,048장): 정확도 87.2%, "낀 것 있음"이라고 했을 때 맞음 0.96, 실제로 낀 것을 찾음 0.78. 크고 어두운 조각(김, 채소)은 잘 찾고
+작은 조각(깨, 고춧가루) 하나만 낀 경우는 자주 놓칩니다. 실제 폰 사진 평가는 아직입니다.
+학습 데이터는 FFHQ 얼굴(NVIDIA, CC BY-NC-SA 4.0)에서 입을 잘라 음식 조각을 합성한 것이라 레포에 올리지 않습니다(모델 파일에는 사진이 들어 있지 않음).
+
 ## 코드 구성
 
 | 파일 | 하는 일 |
@@ -85,9 +102,12 @@ ML Kit Face Detection의 **윤곽(contour) 모드** 결과를 상수 이름 came
 | `makeup/FaceFrame` | 두 눈 기준 얼굴 좌표 |
 | `makeup/MakeupCheckService` | 여러 장 중간값으로 합치기 |
 | `training/` | 기준값 학습(Python): `features.py` → `train.py` |
+| `teeth/TeethCheckService` | 치아: 구도·밝기 확인 → 모델 → 확률 기준 |
+| `teeth/MouthCrop` | 학습과 같은 입 자르기·정규화 |
+| `teeth/OnnxTeethClassifier` | ONNX Runtime으로 모델 실행 |
 | `image/Images` | base64 풀기(JPEG·PNG, 8MB), sRGB → CIELAB |
 
 ## 오류 코드
 
 `no_image`, `bad_image`, `bad_request`(윤곽점이 비율이 아님, 6장 이상), `no_landmarks`(윤곽점이 없거나 모자람 → 다시 찍기),
-`not_ready`(teeth_check, 정지원 님 작업 전), `upstream_failed`.
+`not_ready`(teeth_check 모델 파일이 없음), `upstream_failed`.
