@@ -1,0 +1,5 @@
+numpy
+scikit-learn
+opencv-python-headless
+# make_demo_data.py에서만: 앱 ML Kit 대신 윤곽점을 뽑는 데 씀
+mediapipe
