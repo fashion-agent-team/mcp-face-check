@@ -196,6 +196,18 @@ class MakeupAnalyzerTest {
     }
 
     @Test
+    @DisplayName("한쪽이 조금 어두워도(빛이 옆에서) 립스틱이 같으면 입술 색은 고름: 옆 피부와 견주어 비교")
+    void lipColorSideLight() {
+        var f = new SyntheticFace();
+        f.shadeRight = 0.12;
+        MakeupResult r = run(f);
+        assertThat(r.symmetry().skipped()).isEmpty();
+        var lip = r.symmetry().checks().stream().filter(c -> c.name().equals("lipColor")).findFirst().orElseThrow();
+        assertThat(Math.abs(lip.value())).isLessThan(6); // 입술끼리만 비교하면 7.4(옛 방식)
+        assertThat(lip.ok()).isTrue();
+    }
+
+    @Test
     @DisplayName("한쪽이 그늘지면 색 비교는 건너뛰고(skipped) 모양만 봄")
     void unevenLight() {
         var f = new SyntheticFace();

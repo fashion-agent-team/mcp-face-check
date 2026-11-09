@@ -27,7 +27,11 @@ final class MakeupPixels {
     }
 
     /** 입술 모양. corner = 오른쪽 입꼬리 y - 왼쪽 입꼬리 y (+면 왼쪽이 더 높음). */
-    record Lips(double halfLeft, double halfRight, double corner, double[] up, double[] down) {
+    record Lips(double halfLeft, double halfRight, double corner, double[] up, double[] down, Double upRatio,
+            Double downRatio) {
+        Lips(double halfLeft, double halfRight, double corner, double[] up, double[] down) {
+            this(halfLeft, halfRight, corner, up, down, null, null);
+        }
     }
 
     /**
@@ -105,7 +109,7 @@ final class MakeupPixels {
     }
 
     /** @param outer 입술 바깥 다각형(얼굴 좌표) */
-    static Lips lips(BufferedImage img, FaceFrame f, List<Pt> outer) {
+    static Lips lips(BufferedImage img, FaceFrame f, List<Pt> outer, List<Pt> innerTop, List<Pt> innerBottom) {
         double pad = 0.125;
         double x0 = outer.stream().mapToDouble(Pt::x).min().orElse(0) - pad;
         double x1 = outer.stream().mapToDouble(Pt::x).max().orElse(0) + pad;
@@ -186,7 +190,63 @@ final class MakeupPixels {
             up[side] = upSum / n;
             down[side] = downSum / n;
         }
-        return new Lips(-cl, cr, ycr - ycl, up, down);
+        Double upRatio = innerTop.size() >= 3 ? robustRatio(xs, ys, cl, cr, innerTop, -1) : null;
+        Double downRatio = innerBottom.size() >= 3 ? robustRatio(xs, ys, cl, cr, innerBottom, 1) : null;
+        return new Lips(-cl, cr, ycr - ycl, up, down, upRatio, downRatio);
+    }
+
+    /**
+     * 입술 선 좌우 비교: 입술 픽셀의 위(아래) 끝에서 윤곽점 안쪽 선(윗입술 아래 선, 아랫입술 위 선)까지 두께를,
+     * 가운데 선에서 같은 거리(u)의 왼쪽·오른쪽끼리 비율로 내고 그 가운데 값을 씁니다. 입꼬리 선에서 재던 방식보다
+     * 입을 조금 벌리거나 입꼬리를 잘못 잡아도 덜 흔들리고, 열마다 끝은 10% 값이라 튀는 픽셀에도 덜 흔들립니다
+     * (CelebA 비교: 윗입술 선을 넘겨 그린 것 검출 23% → 60%, training/public-baseline.md). 못 재면 null.
+     */
+    private static Double robustRatio(double[] xs, double[] ys, double cl, double cr, List<Pt> inner, int dir) {
+        List<Pt> line = inner.stream().sorted(java.util.Comparator.comparingDouble(Pt::x)).toList();
+        List<Double> ratios = new ArrayList<>();
+        for (double u = 0.15; u <= 0.76; u += 0.05) {
+            double[] th = new double[2];
+            boolean ok = true;
+            for (int side = 0; side < 2 && ok; side++) {
+                double x = (side == 0 ? -1 : 1) * u * (side == 0 ? -cl : cr);
+                if (x < line.getFirst().x() || x > line.getLast().x()) {
+                    ok = false;
+                    break;
+                }
+                List<Double> col = new ArrayList<>();
+                for (int k = 0; k < xs.length; k++) {
+                    if (Math.abs(xs[k] - x) < 0.015) {
+                        col.add(ys[k]);
+                    }
+                }
+                if (col.size() < 4) {
+                    ok = false;
+                    break;
+                }
+                double[] c = col.stream().mapToDouble(Double::doubleValue).toArray();
+                double edge = percentile(c, dir < 0 ? 10 : 90);
+                double base = lineY(line, x);
+                th[side] = dir < 0 ? base - edge : edge - base;
+                if (th[side] <= 0.01) {
+                    ok = false;
+                }
+            }
+            if (ok) {
+                ratios.add((th[0] - th[1]) / Math.max(th[0], th[1]));
+            }
+        }
+        return ratios.size() < 4 ? null : median(ratios);
+    }
+
+    private static double lineY(List<Pt> line, double x) {
+        for (int i = 1; i < line.size(); i++) {
+            Pt a = line.get(i - 1);
+            Pt b = line.get(i);
+            if (x <= b.x()) {
+                return b.x() == a.x() ? b.y() : a.y() + (x - a.x()) / (b.x() - a.x()) * (b.y() - a.y());
+            }
+        }
+        return line.getLast().y();
     }
 
     private static int bin(double x, double x0, int bins) {
@@ -373,7 +433,7 @@ final class MakeupPixels {
         return in;
     }
 
-    private static double distance(List<Pt> poly, Pt p) {
+    static double distance(List<Pt> poly, Pt p) {
         double best = Double.MAX_VALUE;
         for (int i = 0, j = poly.size() - 1; i < poly.size(); j = i++) {
             Pt a = poly.get(j);

@@ -92,10 +92,12 @@ def main(a):
             continue
         lm, pts = found
         v = measure(mcp, img, lm)
+        if v is not None:
+            v["_lm"] = lm
         if v is None:
             skipped += 1
             continue
-        plain.append(v)
+        plain.append(v | {"_file": f})
         # 같은 사진에 한쪽만 다르게 그려 넣기
         name, fn, (lo, hi), _ = EDITS[i % len(EDITS)]
         size = float(rng.uniform(lo, hi))
@@ -104,7 +106,7 @@ def main(a):
         if found2:
             v2 = measure(mcp, out, found2[0])
             if v2 is not None:
-                edited.append({"edit": name, "size": size, "values": v2})
+                edited.append({"edit": name, "size": size, "values": v2, "file": f, "lm": found2[0]})
         if (i + 1) % 200 == 0:
             print(f"{i + 1}/{len(files)}", flush=True)
     print(f"사진 {len(files)}장 중 측정 {len(plain)}장, 건너뜀 {skipped}장(옆얼굴·윤곽점 없음·구도)")
@@ -138,7 +140,8 @@ def main(a):
     out = pathlib.Path(__file__).parent / "out"
     out.mkdir(exist_ok=True)
     (out / "public_baseline.json").write_text(json.dumps(
-        {"photos": len(files), "measured": len(plain), "pct": a.pct, "thresholds": thresholds, "detection": report},
+        {"photos": len(files), "measured": len(plain), "pct": a.pct, "thresholds": thresholds, "detection": report,
+         "plain": plain, "edited": edited},
         ensure_ascii=False, indent=1))
     text = (f"# training/public_baseline.py: 공개 데이터셋 CelebA의 화장한 얼굴 사진 {len(plain)}장에서 잰 값의 "
             f"{a.pct:g}번째 백분위(100장 중 {a.pct:g}장이 이 값 아래).\n# 팀 셀카에 라벨을 붙여 train.py로 다시 학습하면 그 값으로 바꾸세요.\n"
