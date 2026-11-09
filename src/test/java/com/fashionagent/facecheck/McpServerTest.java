@@ -53,14 +53,15 @@ class McpServerTest {
     }
 
     @Test
-    @DisplayName("윤곽점 + 사진 → 대칭 결과 JSON (agent가 읽는 framing·lighting·symmetry·source)")
+    @DisplayName("윤곽점 + 사진 → 대칭 결과 JSON (agent가 읽는 framing·lighting·symmetry, source 없음)")
     void makeup() {
         var f = new SyntheticFace();
         f.edits.put("leftEyebrowTop", SyntheticFace.shift(0, -0.12));
         f.edits.put("leftEyebrowBottom", SyntheticFace.shift(0, -0.12));
         String out = text(call("face_makeup_check", Map.of("imageBase64", f.jpegBase64(), "landmarks", f.landmarks())));
         assertThat(out).contains("\"framing\":null", "\"lighting\":\"ok\"", "\"ok\":false",
-                "왼쪽 눈썹이 오른쪽보다 조금 높게 그려졌어요.", "\"source\":\"model\"");
+                "왼쪽 눈썹이 오른쪽보다 조금 높게 그려졌어요.")
+                .doesNotContain("\"source\"");
     }
 
     @Test

@@ -6,12 +6,10 @@ import java.util.List;
  * face_makeup_check 결과 (앱 레포 docs/contracts/mcp-tools.md). framing이 있거나 lighting이 dark면
  * agent가 그 안내만 하고 다시 찍으므로 symmetry는 null입니다.
  */
-public record MakeupResult(String framing, String lighting, Symmetry symmetry, String source) {
-
-    public static final String MODEL = "model";
+public record MakeupResult(String framing, String lighting, Symmetry symmetry) {
 
     static MakeupResult retake(String framing, String lighting) {
-        return new MakeupResult(framing, lighting, null, MODEL);
+        return new MakeupResult(framing, lighting, null);
     }
 
     /**
