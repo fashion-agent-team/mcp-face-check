@@ -23,9 +23,15 @@ final class MakeupAnalyzer {
     static final String COLOR = "color";
 
     private final FaceCheckProperties.Symmetry t;
+    private final FaceParser parser;
 
     MakeupAnalyzer(FaceCheckProperties.Symmetry thresholds) {
+        this(thresholds, FaceParser.NONE);
+    }
+
+    MakeupAnalyzer(FaceCheckProperties.Symmetry thresholds, FaceParser parser) {
         this.t = thresholds;
+        this.parser = parser == null ? FaceParser.NONE : parser;
     }
 
     MakeupResult analyze(FaceLandmarks lm, BufferedImage img) {
@@ -160,9 +166,15 @@ final class MakeupAnalyzer {
         double eyeR = width(f.local(s.rightEye));
         List<Pt> face = f.local(s.face);
 
-        // 먼저 사진에서 그려진 눈썹을 나눠 잼. 한쪽이라도 안 되면 둘 다 윤곽점으로
-        MakeupPixels.Brow pl = MakeupPixels.brow(img, f, -1, concat(lt, lb), browPoly(lt, lb), face, eyeL);
-        MakeupPixels.Brow pr = pl == null ? null : MakeupPixels.brow(img, f, 1, concat(rt, rb), browPoly(rt, rb), face, eyeR);
+        // 1) 분할 모델이 있으면 모델이 고른 눈썹 칸으로, 2) 없거나 못 찾으면 밝기로 나눠서, 3) 그것도 안 되면 윤곽점으로.
+        // 한쪽이라도 안 되면 다음 방법으로 둘 다 잼(좌우를 같은 방법으로 비교)
+        FaceLabels labels = parser.ready() ? parser.parse(img, f) : null;
+        MakeupPixels.Brow pl = labels == null ? null : MakeupPixels.brow(labels, -1, eyeL);
+        MakeupPixels.Brow pr = pl == null ? null : MakeupPixels.brow(labels, 1, eyeR);
+        if (pl == null || pr == null) {
+            pl = MakeupPixels.brow(img, f, -1, concat(lt, lb), browPoly(lt, lb), face, eyeL);
+            pr = pl == null ? null : MakeupPixels.brow(img, f, 1, concat(rt, rb), browPoly(rt, rb), face, eyeR);
+        }
         MakeupPixels.Brow bl = pl != null && pr != null ? pl : landmarkBrow(lt, lb, both, -1, eyeL);
         MakeupPixels.Brow br = pl != null && pr != null ? pr : landmarkBrow(rt, rb, both, 1, eyeR);
         String basis = pl != null && pr != null ? PIXELS : LANDMARKS;

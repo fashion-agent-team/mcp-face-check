@@ -120,6 +120,53 @@ final class MakeupPixels {
                 area / (outer - inner));
     }
 
+    /**
+     * 분할 모델이 눈썹이라고 한 칸으로 잰 눈썹 한쪽. 두께는 가로 위치(열)마다 잰 세로 두께의 가운데 값이라
+     * 꼬리가 가늘어지는 모양이나 길이 차이에 덜 흔들림(CelebA 비교: 한쪽만 두껍게 그린 것 검출 8% → 53%).
+     *
+     * @param sgn -1 왼쪽, 1 오른쪽
+     * @return 눈썹 칸이 너무 적으면 null
+     */
+    static Brow brow(FaceLabels lab, int sgn, double eyeWidth) {
+        int n = lab.size();
+        List<double[]> cells = new ArrayList<>();
+        java.util.Map<Integer, Integer> perColumn = new java.util.HashMap<>();
+        for (int j = 0; j < n; j++) {
+            double y = lab.y(j);
+            if (y >= 0) {
+                break; // 눈 선 아래는 보지 않음
+            }
+            for (int i = 0; i < n; i++) {
+                double x = lab.x(i) * sgn;
+                if (x > 0.05 && lab.brow(i, j)) {
+                    cells.add(new double[] {x, y});
+                    perColumn.merge(i, 1, Integer::sum);
+                }
+            }
+        }
+        if (cells.size() < 30 || eyeWidth <= 0) {
+            return null;
+        }
+        double[] xs = cells.stream().mapToDouble(c -> c[0]).toArray();
+        double inner = percentile(xs, 2);
+        double outer = percentile(xs, 98);
+        if (outer - inner < 0.15) {
+            return null;
+        }
+        double ySum = 0;
+        double tailSum = 0;
+        int tailN = 0;
+        for (double[] c : cells) {
+            ySum += c[1];
+            if (c[0] > outer - 0.2 * (outer - inner)) {
+                tailSum += c[1];
+                tailN++;
+            }
+        }
+        double thickness = median(perColumn.values().stream().map(v -> v * lab.cell()).toList());
+        return new Brow(-ySum / cells.size(), -tailSum / Math.max(1, tailN), (outer - inner) / eyeWidth, thickness);
+    }
+
     /** @param outer 입술 바깥 다각형(얼굴 좌표) */
     static Lips lips(BufferedImage img, FaceFrame f, List<Pt> outer, List<Pt> innerTop, List<Pt> innerBottom) {
         double pad = 0.125;
