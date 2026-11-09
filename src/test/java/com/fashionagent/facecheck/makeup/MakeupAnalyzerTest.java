@@ -156,11 +156,11 @@ class MakeupAnalyzerTest {
     }
 
     @Test
-    @DisplayName("입술 선을 오른쪽으로 길게 그리면 너비 문장")
+    @DisplayName("입술 선을 오른쪽으로 길게 그리면 너비 문장 (윤곽점 입꼬리는 그대로, 그린 선만 바뀜)")
     void lipWider() {
         var f = new SyntheticFace();
         for (String c : List.of("upperLipTop", "upperLipBottom", "lowerLipTop", "lowerLipBottom")) {
-            f.edits.put(c, pts -> pts.stream().map(p -> p[0] > 0 ? new double[] {p[0] * 1.25, p[1]} : p).toList());
+            f.drawEdits.put(c, pts -> pts.stream().map(p -> p[0] > 0 ? new double[] {p[0] * 1.4, p[1]} : p).toList());
         }
         assertThat(run(f).symmetry().notes()).contains("입술 선이 오른쪽으로 더 길게 그려졌어요.");
     }
@@ -193,6 +193,18 @@ class MakeupAnalyzerTest {
         var f = new SyntheticFace();
         f.lipRight = new Color(214, 140, 140);
         assertThat(run(f).symmetry().notes()).containsExactly("입술 색이 오른쪽이 왼쪽보다 연해요.");
+    }
+
+    @Test
+    @DisplayName("한쪽이 조금 어두워도(빛이 옆에서) 립스틱이 같으면 입술 색은 고름: 옆 피부와 견주어 비교")
+    void lipColorSideLight() {
+        var f = new SyntheticFace();
+        f.shadeRight = 0.12;
+        MakeupResult r = run(f);
+        assertThat(r.symmetry().skipped()).isEmpty();
+        var lip = r.symmetry().checks().stream().filter(c -> c.name().equals("lipColor")).findFirst().orElseThrow();
+        assertThat(Math.abs(lip.value())).isLessThan(6); // 입술끼리만 비교하면 7.4(옛 방식)
+        assertThat(lip.ok()).isTrue();
     }
 
     @Test

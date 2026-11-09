@@ -106,11 +106,59 @@ class Editor:
         return (img * (1 - m) + lip * m).clip(0, 255).astype(np.uint8)
 
 
+    def _brow(self):
+        top = self.px[IDX["leftEyebrowTop"]]
+        mid_x = self.px[168][0]
+        tail_left = abs(top[:, 0].min() - mid_x) > abs(top[:, 0].max() - mid_x)  # 꼬리가 x 작은 쪽인지
+        m = self.mask(IDX["leftEyebrowTop"] + IDX["leftEyebrowBottom"][::-1], int(0.04 * self.iod))
+        return top, tail_left, m
+
+    def shorten_left_brow(self, img, d):
+        """왼쪽 눈썹 꼬리를 d(눈썹 길이 비율)만큼 지움."""
+        top, tail_left, m = self._brow()
+        x0, x1 = top[:, 0].min(), top[:, 0].max()
+        cut = x0 + d * (x1 - x0) if tail_left else x1 - d * (x1 - x0)
+        xx = np.arange(self.W)[None, :]
+        part = m.copy()
+        part[:, (xx[0] > cut) if tail_left else (xx[0] < cut)] = 0
+        part = cv2.dilate(part, np.ones((3, 3), np.uint8))
+        return cv2.inpaint(img, part, 5, cv2.INPAINT_TELEA)
+
+    def thicken_left_brow(self, img, d):
+        """왼쪽 눈썹 아래쪽을 d(두 눈 사이 비율)만큼 더 그림."""
+        _, _, m = self._brow()
+        k = max(1, int(round(d * self.iod)))
+        grown = cv2.dilate(m, np.ones((k + 1, 1), np.uint8), anchor=(0, k))  # 아래로만 늘림
+        add = cv2.bitwise_and(grown, cv2.bitwise_not(m))
+        dark = np.percentile(img[m > 0].reshape(-1, 3).sum(1), 30)
+        brow = np.median(img[m > 0][img[m > 0].sum(1) <= dark], axis=0)
+        a = cv2.GaussianBlur(add, (3, 3), 0)[..., None] / 255.0
+        return (img * (1 - a) + brow * a).clip(0, 255).astype(np.uint8)
+
+    def extend_left_lip(self, img, d):
+        """왼쪽 입꼬리 밖으로 립을 d(두 눈 사이 비율)만큼 더 그림."""
+        c = self.px[61]
+        out = np.sign(c[0] - self.px[0][0])
+        tip = c + [out * d * self.iod, 0]
+        poly = np.array([self.px[40], tip, self.px[91]]).astype(np.int32)
+        m = np.zeros((self.H, self.W), np.uint8)
+        cv2.fillPoly(m, [poly], 255)
+        lipm = self.mask(IDX["upperLipTop"] + IDX["lowerLipBottom"][::-1])
+        m[lipm > 0] = 0
+        lip = np.median(self.base[cv2.bitwise_and(lipm, cv2.bitwise_not(
+            self.mask(IDX["upperLipBottom"] + IDX["lowerLipTop"][::-1]))) > 0], axis=0)
+        a = cv2.GaussianBlur(m, (3, 3), 0)[..., None] / 255.0
+        return (img * (1 - a) + lip * a).clip(0, 255).astype(np.uint8)
+
+
 # (항목, 그리는 함수, 크기 범위, 이 크기부터 '다름' 라벨)
 EDITS = [("browHeight", "raise_left_brow", (0.0, 0.2), 0.08),
          ("cheekColor", "blush_left", (0.0, 0.5), 0.2),
          ("lipColor", "lighter_right_lip", (0.0, 0.7), 0.3),
-         ("upperLipLine", "overdraw_left_upper_lip", (0.0, 0.1), 0.04)]
+         ("upperLipLine", "overdraw_left_upper_lip", (0.0, 0.1), 0.04),
+         ("browLength", "shorten_left_brow", (0.0, 0.4), 0.15),
+         ("browThickness", "thicken_left_brow", (0.0, 0.08), 0.03),
+         ("lipHalfWidth", "extend_left_lip", (0.0, 0.15), 0.05)]
 
 
 def jitter(img, rng):

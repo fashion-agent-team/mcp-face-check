@@ -1,0 +1,13 @@
+# training/public_baseline.py: 공개 데이터셋 CelebA의 화장한 얼굴 사진 2832장에서 잰 값의 95번째 백분위(100장 중 95장이 이 값 아래).
+# 팀 셀카에 라벨을 붙여 train.py로 다시 학습하면 그 값으로 바꾸세요.
+face:
+  symmetry:
+    brow-height: 0.042
+    brow-length: 0.218
+    brow-tail: 0.063
+    brow-thickness: 0.182
+    cheek-redness: 5.417
+    lip-color: 7.134
+    lip-corner: 0.084
+    lip-half-width: 0.103
+    lip-line: 0.395

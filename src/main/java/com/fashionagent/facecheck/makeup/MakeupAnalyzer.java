@@ -23,9 +23,15 @@ final class MakeupAnalyzer {
     static final String COLOR = "color";
 
     private final FaceCheckProperties.Symmetry t;
+    private final FaceParser parser;
 
     MakeupAnalyzer(FaceCheckProperties.Symmetry thresholds) {
+        this(thresholds, FaceParser.NONE);
+    }
+
+    MakeupAnalyzer(FaceCheckProperties.Symmetry thresholds, FaceParser parser) {
         this.t = thresholds;
+        this.parser = parser == null ? FaceParser.NONE : parser;
     }
 
     MakeupResult analyze(FaceLandmarks lm, BufferedImage img) {
@@ -43,7 +49,8 @@ final class MakeupAnalyzer {
         }
 
         List<Check> checks = new ArrayList<>();
-        brows(s, frame, img, checks);
+        FaceLabels labels = parser.ready() ? parser.parse(img, frame) : null;
+        brows(s, frame, img, labels, checks);
         lips(s, frame, img, checks);
         List<String> skipped = colors(s, frame, img, checks);
         return result(checks, skipped, t.maxNotes());
@@ -150,7 +157,7 @@ final class MakeupAnalyzer {
 
     // ---------- 눈썹 ----------
 
-    private void brows(Sides s, FaceFrame f, BufferedImage img, List<Check> checks) {
+    private void brows(Sides s, FaceFrame f, BufferedImage img, FaceLabels labels, List<Check> checks) {
         List<Pt> lt = f.local(s.leftBrowTop);
         List<Pt> rt = f.local(s.rightBrowTop);
         List<Pt> lb = f.local(s.leftBrowBottom);
@@ -160,9 +167,14 @@ final class MakeupAnalyzer {
         double eyeR = width(f.local(s.rightEye));
         List<Pt> face = f.local(s.face);
 
-        // 먼저 사진에서 그려진 눈썹을 나눠 잼. 한쪽이라도 안 되면 둘 다 윤곽점으로
-        MakeupPixels.Brow pl = MakeupPixels.brow(img, f, -1, concat(lt, lb), browPoly(lt, lb), face, eyeL);
-        MakeupPixels.Brow pr = pl == null ? null : MakeupPixels.brow(img, f, 1, concat(rt, rb), browPoly(rt, rb), face, eyeR);
+        // 1) 분할 모델이 있으면 모델이 고른 눈썹 칸으로, 2) 없거나 못 찾으면 밝기로 나눠서, 3) 그것도 안 되면 윤곽점으로.
+        // 한쪽이라도 안 되면 다음 방법으로 둘 다 잼(좌우를 같은 방법으로 비교)
+        MakeupPixels.Brow pl = labels == null ? null : MakeupPixels.brow(labels, -1, eyeL);
+        MakeupPixels.Brow pr = pl == null ? null : MakeupPixels.brow(labels, 1, eyeR);
+        if (pl == null || pr == null) {
+            pl = MakeupPixels.brow(img, f, -1, concat(lt, lb), browPoly(lt, lb), face, eyeL);
+            pr = pl == null ? null : MakeupPixels.brow(img, f, 1, concat(rt, rb), browPoly(rt, rb), face, eyeR);
+        }
         MakeupPixels.Brow bl = pl != null && pr != null ? pl : landmarkBrow(lt, lb, both, -1, eyeL);
         MakeupPixels.Brow br = pl != null && pr != null ? pr : landmarkBrow(rt, rb, both, 1, eyeR);
         String basis = pl != null && pr != null ? PIXELS : LANDMARKS;
@@ -200,7 +212,8 @@ final class MakeupAnalyzer {
     private void lips(Sides s, FaceFrame f, BufferedImage img, List<Check> checks) {
         List<Pt> top = f.local(s.upperLipTop);
         List<Pt> bottom = f.local(s.lowerLipBottom);
-        MakeupPixels.Lips px = MakeupPixels.lips(img, f, polygon(top, bottom));
+        MakeupPixels.Lips px = MakeupPixels.lips(img, f, polygon(top, bottom), f.local(s.upperLipBottom),
+                f.local(s.lowerLipTop));
         MakeupPixels.Lips lm = px != null ? px : landmarkLips(s, f, top, bottom);
         if (lm == null) {
             return; // 입이 가운데 선 한쪽에만 있으면(돌린 얼굴) 비교하지 않음
@@ -208,12 +221,24 @@ final class MakeupAnalyzer {
         String basis = px != null ? PIXELS : LANDMARKS;
 
         Check corner = check("lipCorner", lm.corner(), t.lipCorner(), basis, checks);
-        Check width = check("lipHalfWidth", ratio(lm.halfLeft(), lm.halfRight()), t.lipHalfWidth(), basis, checks);
-        if (lm.up() != null && lm.up()[0] > 0.02 && lm.up()[1] > 0.02) {
-            Check c = check("upperLipLine", ratio(lm.up()[0], lm.up()[1]), t.lipLine(), basis, checks);
+        // 입술 너비: 사진에서 나눈 입꼬리가 윤곽점 입꼬리보다 얼마나 더 나갔는지(IOD)를 좌우 비교. 윤곽점은 그린 선을 거의 안 따라가고
+        // 웃음·고개 돌림 같은 원래 비대칭은 같이 따라가서, 빼면 "더 그린 만큼"만 남음
+        // (CelebA: 좌우 흔들림 0.16 → 0.05, 한쪽 입꼬리를 밖으로 그린 것 검출 20% → 41%). 색으로 못 나누면(누드 립) 재지 않음
+        MakeupPixels.Lips bone = px != null ? landmarkLips(s, f, top, bottom) : null;
+        if (bone != null) {
+            check("lipHalfWidth", (px.halfLeft() - bone.halfLeft()) - (px.halfRight() - bone.halfRight()),
+                    t.lipHalfWidth(), basis, checks);
         }
-        if (lm.down() != null && lm.down()[0] > 0.02 && lm.down()[1] > 0.02) {
-            Check c = check("lowerLipLine", ratio(lm.down()[0], lm.down()[1]), t.lipLine(), basis, checks);
+        Double up = lm.upRatio() != null ? lm.upRatio()
+                : lm.up() != null && lm.up()[0] > 0.02 && lm.up()[1] > 0.02 ? ratio(lm.up()[0], lm.up()[1]) : null;
+        Double down = lm.downRatio() != null ? lm.downRatio()
+                : lm.down() != null && lm.down()[0] > 0.02 && lm.down()[1] > 0.02 ? ratio(lm.down()[0], lm.down()[1])
+                : null;
+        if (up != null) {
+            check("upperLipLine", up, t.lipLine(), basis, checks);
+        }
+        if (down != null) {
+            check("lowerLipLine", down, t.lipLine(), basis, checks);
         }
     }
 
@@ -296,10 +321,21 @@ final class MakeupAnalyzer {
         if (ll.count() < 20 || lr.count() < 20) {
             return List.of("lipColor");
         }
-        double de = ll.distance(lr);
-        // 더 연한(밝은) 쪽을 side로
-        String lighter = ll.l() >= lr.l() ? LEFT : RIGHT;
-        check("lipColor", LEFT.equals(lighter) ? de : -de, t.lipColor(), COLOR, checks);
+        // 입술 색을 같은 쪽 입술 옆 피부와 견준 차이(L*, a*, b*)를 좌우로 비교: 한쪽에서 빛이 들어와 밝기가 달라도
+        // 피부도 같이 밝아지므로 지워짐 (CelebA 비교: 한쪽 립을 옅게 바른 것 검출 49% → 82%)
+        LabMean sl = new LabMean();
+        LabMean sr = new LabMean();
+        sampleLipSkin(img, f, s, sl, sr);
+        if (sl.count() < 20 || sr.count() < 20) {
+            return List.of("lipColor");
+        }
+        double dL = (ll.l() - sl.l()) - (lr.l() - sr.l());
+        double da = (ll.a() - sl.a()) - (lr.a() - sr.a());
+        double db = (ll.b() - sl.b()) - (lr.b() - sr.b());
+        double de = Math.sqrt(dL * dL + da * da + db * db);
+        // 피부와 색 차이(a*, b*)가 작은 쪽이 더 연한 쪽
+        boolean leftPaler = Math.hypot(ll.a() - sl.a(), ll.b() - sl.b()) < Math.hypot(lr.a() - sr.a(), lr.b() - sr.b());
+        check("lipColor", leftPaler ? de : -de, t.lipColor(), COLOR, checks);
         return List.of();
     }
 
@@ -355,6 +391,35 @@ final class MakeupAnalyzer {
                     continue;
                 }
                 addIf(l.x() < 0 ? left : right, Images.lab(img.getRGB(x, y)), 10, 97);
+            }
+        }
+    }
+
+    /** 입술 바로 바깥 피부(입술 윤곽에서 0.03~0.10 떨어진 띠)를 좌·우로. 입술 색을 그쪽 피부와 견주어 조명 차이를 지움. */
+    private static void sampleLipSkin(BufferedImage img, FaceFrame f, Sides s, LabMean left, LabMean right) {
+        List<Pt> outer = polygon(f.local(s.upperLipTop), f.local(s.lowerLipBottom));
+        double pad = 0.10;
+        double x0 = outer.stream().mapToDouble(Pt::x).min().orElse(0) - pad;
+        double x1 = outer.stream().mapToDouble(Pt::x).max().orElse(0) + pad;
+        double y0 = outer.stream().mapToDouble(Pt::y).min().orElse(0) - pad;
+        double y1 = outer.stream().mapToDouble(Pt::y).max().orElse(0) + pad;
+        List<Pt> corners = List.of(f.pixel(new Pt(x0, y0)), f.pixel(new Pt(x1, y0)), f.pixel(new Pt(x0, y1)),
+                f.pixel(new Pt(x1, y1)));
+        int px0 = clamp(min(corners, Pt::x), img.getWidth());
+        int px1 = clamp(max(corners, Pt::x), img.getWidth());
+        int py0 = clamp(min(corners, Pt::y), img.getHeight());
+        int py1 = clamp(max(corners, Pt::y), img.getHeight());
+        int step = Math.max(1, (int) (f.iod / 60));
+        for (int y = py0; y <= py1; y += step) {
+            for (int x = px0; x <= px1; x += step) {
+                Pt l = f.local(new Pt(x + 0.5, y + 0.5));
+                if (Math.abs(l.x()) < 0.04 || inside(outer, l)) {
+                    continue;
+                }
+                double d = MakeupPixels.distance(outer, l);
+                if (d >= 0.03 && d <= pad) {
+                    addIf(l.x() < 0 ? left : right, Images.lab(img.getRGB(x, y)), 15, 97);
+                }
             }
         }
     }
