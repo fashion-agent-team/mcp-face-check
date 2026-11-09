@@ -156,11 +156,11 @@ class MakeupAnalyzerTest {
     }
 
     @Test
-    @DisplayName("입술 선을 오른쪽으로 길게 그리면 너비 문장")
+    @DisplayName("입술 선을 오른쪽으로 길게 그리면 너비 문장 (윤곽점 입꼬리는 그대로, 그린 선만 바뀜)")
     void lipWider() {
         var f = new SyntheticFace();
         for (String c : List.of("upperLipTop", "upperLipBottom", "lowerLipTop", "lowerLipBottom")) {
-            f.edits.put(c, pts -> pts.stream().map(p -> p[0] > 0 ? new double[] {p[0] * 1.25, p[1]} : p).toList());
+            f.drawEdits.put(c, pts -> pts.stream().map(p -> p[0] > 0 ? new double[] {p[0] * 1.4, p[1]} : p).toList());
         }
         assertThat(run(f).symmetry().notes()).contains("입술 선이 오른쪽으로 더 길게 그려졌어요.");
     }

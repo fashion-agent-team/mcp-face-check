@@ -45,8 +45,8 @@ public record FaceCheckProperties(
             @DefaultValue("0.25") double browThickness,
             /** 입꼬리 높이 차이, IOD. */
             @DefaultValue("0.05") double lipCorner,
-            /** 입술 반쪽 너비(가운데 ~ 입꼬리) 차이 비율. */
-            @DefaultValue("0.12") double lipHalfWidth,
+            /** 입술 반쪽 너비: 사진 입꼬리가 윤곽점 입꼬리보다 더 나간 길이의 좌우 차이, IOD. */
+            @DefaultValue("0.10") double lipHalfWidth,
             /** 윗입술·아랫입술 선 높이 차이 비율. */
             @DefaultValue("0.25") double lipLine,
             /** 볼 붉은 정도(CIELAB a*) 차이. */
