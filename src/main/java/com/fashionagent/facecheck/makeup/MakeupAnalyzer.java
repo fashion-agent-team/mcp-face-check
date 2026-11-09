@@ -49,7 +49,8 @@ final class MakeupAnalyzer {
         }
 
         List<Check> checks = new ArrayList<>();
-        brows(s, frame, img, checks);
+        FaceLabels labels = parser.ready() ? parser.parse(img, frame) : null;
+        brows(s, frame, img, labels, checks);
         lips(s, frame, img, checks);
         List<String> skipped = colors(s, frame, img, checks);
         return result(checks, skipped, t.maxNotes());
@@ -156,7 +157,7 @@ final class MakeupAnalyzer {
 
     // ---------- 눈썹 ----------
 
-    private void brows(Sides s, FaceFrame f, BufferedImage img, List<Check> checks) {
+    private void brows(Sides s, FaceFrame f, BufferedImage img, FaceLabels labels, List<Check> checks) {
         List<Pt> lt = f.local(s.leftBrowTop);
         List<Pt> rt = f.local(s.rightBrowTop);
         List<Pt> lb = f.local(s.leftBrowBottom);
@@ -168,7 +169,6 @@ final class MakeupAnalyzer {
 
         // 1) 분할 모델이 있으면 모델이 고른 눈썹 칸으로, 2) 없거나 못 찾으면 밝기로 나눠서, 3) 그것도 안 되면 윤곽점으로.
         // 한쪽이라도 안 되면 다음 방법으로 둘 다 잼(좌우를 같은 방법으로 비교)
-        FaceLabels labels = parser.ready() ? parser.parse(img, f) : null;
         MakeupPixels.Brow pl = labels == null ? null : MakeupPixels.brow(labels, -1, eyeL);
         MakeupPixels.Brow pr = pl == null ? null : MakeupPixels.brow(labels, 1, eyeR);
         if (pl == null || pr == null) {
@@ -221,7 +221,14 @@ final class MakeupAnalyzer {
         String basis = px != null ? PIXELS : LANDMARKS;
 
         Check corner = check("lipCorner", lm.corner(), t.lipCorner(), basis, checks);
-        Check width = check("lipHalfWidth", ratio(lm.halfLeft(), lm.halfRight()), t.lipHalfWidth(), basis, checks);
+        // 입술 너비: 사진에서 나눈 입꼬리가 윤곽점 입꼬리보다 얼마나 더 나갔는지(IOD)를 좌우 비교. 윤곽점은 그린 선을 거의 안 따라가고
+        // 웃음·고개 돌림 같은 원래 비대칭은 같이 따라가서, 빼면 "더 그린 만큼"만 남음
+        // (CelebA: 좌우 흔들림 0.16 → 0.05, 한쪽 입꼬리를 밖으로 그린 것 검출 20% → 41%). 색으로 못 나누면(누드 립) 재지 않음
+        MakeupPixels.Lips bone = px != null ? landmarkLips(s, f, top, bottom) : null;
+        if (bone != null) {
+            check("lipHalfWidth", (px.halfLeft() - bone.halfLeft()) - (px.halfRight() - bone.halfRight()),
+                    t.lipHalfWidth(), basis, checks);
+        }
         Double up = lm.upRatio() != null ? lm.upRatio()
                 : lm.up() != null && lm.up()[0] > 0.02 && lm.up()[1] > 0.02 ? ratio(lm.up()[0], lm.up()[1]) : null;
         Double down = lm.downRatio() != null ? lm.downRatio()
