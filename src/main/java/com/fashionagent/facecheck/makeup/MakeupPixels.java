@@ -121,8 +121,7 @@ final class MakeupPixels {
     }
 
     /**
-     * 분할 모델이 눈썹이라고 한 칸으로 잰 눈썹 한쪽. 두께는 가로 위치(열)마다 잰 세로 두께의 가운데 값이라
-     * 꼬리가 가늘어지는 모양이나 길이 차이에 덜 흔들림(CelebA 비교: 한쪽만 두껍게 그린 것 검출 8% → 53%).
+     * 분할 모델이 눈썹이라고 한 칸으로 잰 눈썹 한쪽(CelebA 비교: 한쪽만 두껍게 그린 것 검출 8% → 57%).
      *
      * @param sgn -1 왼쪽, 1 오른쪽
      * @return 눈썹 칸이 너무 적으면 null
@@ -130,7 +129,6 @@ final class MakeupPixels {
     static Brow brow(FaceLabels lab, int sgn, double eyeWidth) {
         int n = lab.size();
         List<double[]> cells = new ArrayList<>();
-        java.util.Map<Integer, Integer> perColumn = new java.util.HashMap<>();
         for (int j = 0; j < n; j++) {
             double y = lab.y(j);
             if (y >= 0) {
@@ -140,7 +138,6 @@ final class MakeupPixels {
                 double x = lab.x(i) * sgn;
                 if (x > 0.05 && lab.brow(i, j)) {
                     cells.add(new double[] {x, y});
-                    perColumn.merge(i, 1, Integer::sum);
                 }
             }
         }
@@ -163,7 +160,9 @@ final class MakeupPixels {
                 tailN++;
             }
         }
-        double thickness = median(perColumn.values().stream().map(v -> v * lab.cell()).toList());
+        // 두께 = 눈썹 넓이 ÷ 길이(평균 두께). 열마다 잰 두께의 가운데 값보다 덜 흔들림
+        // (CelebA: 한쪽을 두껍게 그린 것 중간 크기 검출 38% → 51%, 가장 큰 구간 50% → 57%)
+        double thickness = cells.size() * lab.cell() * lab.cell() / (outer - inner);
         // 길이는 같은 높이의 얼굴 반쪽 너비(코 가운데 ~ 얼굴 옆선)로 나눔: 고개가 조금 돌면 먼 쪽 눈썹과 얼굴이 같이 좁아 보여서
         // 상쇄됨(CelebA: 고개 각도와 상관 0.60 → 0.02, 한쪽 눈썹을 짧게 그린 것 검출 3% → 38%)
         double half = lab.faceEdge(sgn, ySum / cells.size()) - lab.noseX() * sgn;

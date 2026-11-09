@@ -53,7 +53,7 @@ class FaceParserTest {
         assertThat(l.center()).isCloseTo(r.center(), org.assertj.core.data.Offset.offset(0.011));
         assertThat(l.center()).isCloseTo(0.39, org.assertj.core.data.Offset.offset(0.02));
         assertThat(l.length()).isCloseTo(r.length(), org.assertj.core.data.Offset.offset(0.1)); // 경계가 칸 경계와 겹쳐 좌우 한두 칸 차이까지
-        assertThat(l.thickness()).isCloseTo(0.12, org.assertj.core.data.Offset.offset(0.021));
+        assertThat(l.thickness()).isCloseTo(0.12, org.assertj.core.data.Offset.offset(0.03)); // 칸 경계로 한 줄 더 들어갈 수 있음
         // 길이 = 눈썹 길이 ÷ 얼굴 반쪽 너비(코 가운데 ~ 옆선 1.2)
         assertThat(l.length()).isCloseTo(0.8 / 1.2, org.assertj.core.data.Offset.offset(0.05));
     }
