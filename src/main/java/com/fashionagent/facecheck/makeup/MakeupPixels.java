@@ -16,6 +16,9 @@ final class MakeupPixels {
 
     /** 눈썹 픽셀: 주변 피부보다 L*가 이만큼 어두운 것 */
     static final double BROW_DARKER = 12;
+    /** 윤곽점 눈썹 안쪽 끝·바깥 끝에서 이만큼만 더 봄(관자놀이 머리카락, 미간 그림자를 뺌) */
+    static final double BROW_X_MARGIN_IN = 0.08;
+    static final double BROW_X_MARGIN_OUT = 0.10;
     /** 입술과 주변 피부의 a*(붉은 정도) 차이가 이보다 작으면 입술 선을 색으로 나눌 수 없음 */
     static final double LIP_MIN_CONTRAST = 4;
 
@@ -75,10 +78,19 @@ final class MakeupPixels {
             mask[i] = r.in[i] && r.lab[i * 3] < skinL[bin(r.lx[i], x0, bins)] - BROW_DARKER;
         }
         mask = open(mask, r.w, r.h);
+        // 가로는 윤곽점 눈썹 양 끝에서 조금만 넘게 봄: 관자놀이 머리카락, 미간 그림자를 뺌
+        double lo = browLocal.stream().mapToDouble(p -> p.x() * sgn).min().orElse(0) - BROW_X_MARGIN_IN;
+        double hi = browLocal.stream().mapToDouble(p -> p.x() * sgn).max().orElse(9) + BROW_X_MARGIN_OUT;
+        for (int i = 0; i < mask.length; i++) {
+            double x = r.lx[i] * sgn;
+            if (mask[i] && (x < lo || x > hi)) {
+                mask[i] = false;
+            }
+        }
         // 윤곽점이 그린 눈썹을 덜 따라가므로(높이 0.12를 0.05만 따라감) 겹침 대신
-        // "크고 윤곽점 눈썹 가운데에 가까운" 덩어리를 고름. 머리카락은 크지만 멀고, 지운 자국은 가깝지만 작음
+        // "크고 윤곽점 눈썹 가운데에 가까운, 가로로 긴" 덩어리를 고름. 머리카락은 크지만 멀거나 세로로 서 있고, 지운 자국은 작음
         Pt target = Pt.mean(browLocal);
-        int[] comp = best(mask, r, (cells, cx, cy2) -> cells * Math.exp(-Math.pow(Math.hypot(cx - target.x(), cy2 - target.y()) / 0.15, 2)));
+        int[] comp = browComponent(mask, r, target);
         if (comp.length < 30) {
             return null;
         }
@@ -342,9 +354,6 @@ final class MakeupPixels {
         return out;
     }
 
-    interface Score {
-        double of(int cells, double cx, double cy);
-    }
 
     /** 이어진 덩어리(4방향)마다 칸 목록을 만든다. */
     private static List<int[]> components(boolean[] mask, Region r) {
@@ -380,23 +389,56 @@ final class MakeupPixels {
     }
 
     /** 점수가 가장 높은 덩어리. 없으면 빈 배열. */
-    private static int[] best(boolean[] mask, Region r, Score score) {
-        int[] best = new int[0];
+    /**
+     * 눈썹 덩어리 고르기. 점수 = 크기 × 윤곽점 눈썹 가운데와 가까움 × 가로로 긴 정도. 관자놀이 머리카락처럼 세로로 선 덩어리는
+     * 크고 가까워도 눈썹이 아님. 고른 덩어리와 같은 높이에서 가로로 이어지는 덩어리(가운데가 옅어 끊긴 눈썹)는 합침.
+     */
+    private static int[] browComponent(boolean[] mask, Region r, Pt target) {
+        List<int[]> comps = components(mask, r);
+        double[][] st = new double[comps.size()][];
+        int bestI = -1;
         double bestScore = 0;
-        for (int[] c : components(mask, r)) {
-            double cx = 0;
-            double cy = 0;
+        for (int i = 0; i < comps.size(); i++) {
+            int[] c = comps.get(i);
+            double cx = 0, cy = 0, x0 = 9, x1 = -9, y0 = 9, y1 = -9;
             for (int k : c) {
-                cx += r.lx[k];
-                cy += r.ly[k];
+                double x = r.lx[k], y = r.ly[k];
+                cx += x;
+                cy += y;
+                x0 = Math.min(x0, x);
+                x1 = Math.max(x1, x);
+                y0 = Math.min(y0, y);
+                y1 = Math.max(y1, y);
             }
-            double v = score.of(c.length, cx / c.length, cy / c.length);
-            if (v > bestScore) {
-                bestScore = v;
-                best = c;
+            cx /= c.length;
+            cy /= c.length;
+            double w = x1 - x0 + 0.01;
+            double h = y1 - y0 + 0.01;
+            double shape = Math.min(1, (w / h) / 2.5);
+            st[i] = new double[] {cx, cy, x0, x1, w / h};
+            double score = c.length * Math.exp(-Math.pow(Math.hypot(cx - target.x(), cy - target.y()) / 0.15, 2))
+                    * shape * shape;
+            if (score > bestScore) {
+                bestScore = score;
+                bestI = i;
             }
         }
-        return best;
+        if (bestI < 0) {
+            return new int[0];
+        }
+        double[] b = st[bestI];
+        List<Integer> out = new ArrayList<>();
+        for (int i = 0; i < comps.size(); i++) {
+            double[] o = st[i];
+            boolean join = i == bestI || (comps.get(i).length >= 8 && o[4] >= 1.5 && Math.abs(o[1] - b[1]) < 0.06
+                    && Math.max(o[2] - b[3], b[2] - o[3]) < 0.08);
+            if (join) {
+                for (int k : comps.get(i)) {
+                    out.add(k);
+                }
+            }
+        }
+        return out.stream().mapToInt(Integer::intValue).toArray();
     }
 
     /** 윤곽점 다각형과 가장 많이 겹치는 덩어리. */

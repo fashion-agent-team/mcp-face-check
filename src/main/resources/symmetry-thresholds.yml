@@ -2,10 +2,10 @@
 # 팀 셀카에 라벨을 붙여 train.py로 다시 학습하면 그 값으로 바꾸세요.
 face:
   symmetry:
-    brow-height: 0.078
-    brow-length: 0.464
-    brow-tail: 0.131
-    brow-thickness: 0.394
+    brow-height: 0.072
+    brow-length: 0.443
+    brow-tail: 0.126
+    brow-thickness: 0.392
     cheek-redness: 5.699
     lip-color: 7.217
     lip-corner: 0.085

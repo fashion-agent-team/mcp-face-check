@@ -70,7 +70,8 @@ def jpeg(img):
 def measure(mcp, img, lm):
     r = mcp.call("face_makeup_check", {"imageBase64": jpeg(img), "landmarks": lm})
     sym = r.get("symmetry")
-    return {c["name"]: c["value"] for c in sym["checks"]} if sym else None
+    # 부호: 왼쪽이 크면 +, 오른쪽이 크면 - (기준값은 절댓값으로 정함)
+    return {c["name"]: c["value"] * (-1 if c["side"] == "right" else 1) for c in sym["checks"]} if sym else None
 
 
 def main(a):
