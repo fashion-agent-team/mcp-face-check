@@ -25,7 +25,7 @@ final class MakeupPixels {
     private MakeupPixels() {
     }
 
-    /** 눈썹 한쪽의 모양. 길이는 같은 쪽 눈 너비로 나눈 값(고개가 조금 돌아도 원근 차이가 상쇄됨). */
+    /** 눈썹 한쪽의 모양. 길이는 비교용 비율(분할 모델: 얼굴 반쪽 너비 대비, 밝기·윤곽점: 같은 쪽 눈 너비 대비)이라 좌우를 같은 방법으로 잴 때만 비교. */
     record Brow(double center, double tail, double length, double thickness) {
     }
 
@@ -164,7 +164,13 @@ final class MakeupPixels {
             }
         }
         double thickness = median(perColumn.values().stream().map(v -> v * lab.cell()).toList());
-        return new Brow(-ySum / cells.size(), -tailSum / Math.max(1, tailN), (outer - inner) / eyeWidth, thickness);
+        // 길이는 같은 높이의 얼굴 반쪽 너비(코 가운데 ~ 얼굴 옆선)로 나눔: 고개가 조금 돌면 먼 쪽 눈썹과 얼굴이 같이 좁아 보여서
+        // 상쇄됨(CelebA: 고개 각도와 상관 0.60 → 0.02, 한쪽 눈썹을 짧게 그린 것 검출 3% → 38%)
+        double half = lab.faceEdge(sgn, ySum / cells.size()) - lab.noseX() * sgn;
+        if (!(half > 0.3)) {
+            return null;
+        }
+        return new Brow(-ySum / cells.size(), -tailSum / Math.max(1, tailN), (outer - inner) / half, thickness);
     }
 
     /** @param outer 입술 바깥 다각형(얼굴 좌표) */

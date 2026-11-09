@@ -28,8 +28,12 @@ class FaceParserTest {
                     b[j * N + i] = FaceLabels.L_BROW;
                 } else if (in(x, y, right)) {
                     b[j * N + i] = FaceLabels.R_BROW;
+                } else if (Math.abs(x) < 0.15 && y > 0.1 && y < 0.6) {
+                    b[j * N + i] = FaceLabels.NOSE;
                 } else if (y < -0.9) {
                     b[j * N + i] = FaceLabels.HAIR;
+                } else if (Math.abs(x) < 1.2) {
+                    b[j * N + i] = 1; // 피부
                 }
             }
         }
@@ -50,6 +54,30 @@ class FaceParserTest {
         assertThat(l.center()).isCloseTo(0.39, org.assertj.core.data.Offset.offset(0.02));
         assertThat(l.length()).isCloseTo(r.length(), org.assertj.core.data.Offset.offset(0.1)); // 경계가 칸 경계와 겹쳐 좌우 한두 칸 차이까지
         assertThat(l.thickness()).isCloseTo(0.12, org.assertj.core.data.Offset.offset(0.021));
+        // 길이 = 눈썹 길이 ÷ 얼굴 반쪽 너비(코 가운데 ~ 옆선 1.2)
+        assertThat(l.length()).isCloseTo(0.8 / 1.2, org.assertj.core.data.Offset.offset(0.05));
+    }
+
+    @Test
+    @DisplayName("한쪽 눈썹 꼬리를 짧게 그리면 길이 차이로 나옴")
+    void shorter() {
+        FaceLabels lab = grid(new double[] {0.15, 0.75, -0.45, -0.33}, new double[] {0.15, 0.95, -0.45, -0.33});
+        double l = MakeupPixels.brow(lab, -1, 0.45).length();
+        double r = MakeupPixels.brow(lab, 1, 0.45).length();
+        assertThat(1 - l / r).isCloseTo(0.25, org.assertj.core.data.Offset.offset(0.06));
+    }
+
+    @Test
+    @DisplayName("코를 못 찾으면 null(밝기로 재는 방법으로 넘어감)")
+    void noNose() {
+        FaceLabels lab = grid(new double[] {0.15, 0.95, -0.45, -0.33}, new double[] {0.15, 0.95, -0.45, -0.33});
+        byte[] b = lab.labels();
+        for (int k = 0; k < b.length; k++) {
+            if (b[k] == FaceLabels.NOSE) {
+                b[k] = 1;
+            }
+        }
+        assertThat(MakeupPixels.brow(lab, -1, 0.45)).isNull();
     }
 
     @Test
