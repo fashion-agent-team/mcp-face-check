@@ -137,7 +137,7 @@ class FaceParserTest {
     @Test
     @DisplayName("레포에 든 ONNX 모델을 읽고 512x512로 나눔")
     void onnxModel() throws Exception {
-        try (OnnxFaceParser p = new OnnxFaceParser(new ClassPathResource("models/face_parsing_bisenet_fp16.onnx"))) {
+        try (OnnxFaceParser p = new OnnxFaceParser(new ClassPathResource("models/face_parsing_bisenet_r34_fp16.onnx"))) {
             assertThat(p.ready()).isTrue();
             var face = new SyntheticFace();
             BufferedImage img = face.image();
