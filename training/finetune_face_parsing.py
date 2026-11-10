@@ -166,7 +166,14 @@ def ids_of(root, exclude):
         before = len(ids)
         ids = [i for i in ids if orig.get(i) not in ex]
         print(f"평가 사진과 겹치는 {before - len(ids)}장을 뺐어요")
-    keep = [i for i in ids if eyes(read_mask(root, i)) is not None]
+    cache = root / "eyes_ok_ids.txt"  # 3만 장 마스크를 매번 여는 데 10분 넘게 걸려서 한 번만 검사
+    if cache.exists():
+        ok = set(map(int, cache.read_text().split()))
+    else:
+        ok = {i for i in sorted(int(p.stem) for p in (root / "CelebA-HQ-img").glob("*.jpg"))
+              if eyes(read_mask(root, i)) is not None}
+        cache.write_text("\n".join(map(str, sorted(ok))))
+    keep = [i for i in ids if i in ok]
     print(f"학습에 쓸 사진 {len(keep)}장(두 눈이 보이는 것)")
     return keep
 
@@ -240,7 +247,7 @@ if __name__ == "__main__":
     p.add_argument("--weights", required=True)
     p.add_argument("--exclude")
     p.add_argument("--out", default="ft.onnx")
-    p.add_argument("--iters", type=int, default=3000)
+    p.add_argument("--iters", type=int, default=1500)  # 1,500번 뒤로는 눈썹·입술이 더 오르지 않았음
     p.add_argument("--batch", type=int, default=8)
     p.add_argument("--lr", type=float, default=2e-3)
     p.add_argument("--part-weight", type=float, default=2.0)
