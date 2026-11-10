@@ -317,6 +317,51 @@ final class MakeupPixels {
         return (int) Math.max(0, Math.min(bins - 1, Math.floor((x - x0) / 0.1)));
     }
 
+    // ---------- 입술 두께(분할 모델) ----------
+
+    /** 입술 두께를 재는 자리: 입 가운데에서 입꼬리까지를 1로 둔 위치 */
+    static final double[] LIP_SPOTS = {0.2, 0.35, 0.5, 0.65, 0.8};
+
+    /**
+     * 분할 모델이 cls(윗입술 12, 아랫입술 13)로 나눈 칸을 세로로 세어 잰 두께(IOD)의 좌·우 평균.
+     * halfLeft/halfRight는 입 가운데에서 입꼬리까지(윤곽점), yTop~yBot은 셀 범위. 한쪽이라도 거의 없으면 null.
+     */
+    static double[] lipThickness(FaceLabels lab, int cls, double halfLeft, double halfRight, double yTop, double yBot) {
+        int j0 = Math.max(0, (int) Math.floor((yTop - lab.y0()) / lab.cell()));
+        int j1 = Math.min(lab.size() - 1, (int) Math.floor((yBot - lab.y0()) / lab.cell()));
+        double[] out = new double[2];
+        for (int side = 0; side < 2; side++) {
+            double half = side == 0 ? -halfLeft : halfRight;
+            for (double u : LIP_SPOTS) {
+                int i = (int) Math.floor((u * half - lab.x0()) / lab.cell());
+                if (i < 0 || i >= lab.size()) {
+                    return null;
+                }
+                for (int j = j0; j <= j1; j++) {
+                    if (lab.at(i, j) == cls) {
+                        out[side] += lab.cell();
+                    }
+                }
+            }
+            out[side] /= LIP_SPOTS.length;
+        }
+        return out[0] > 0.01 && out[1] > 0.01 ? out : null;
+    }
+
+    /** 윤곽점 두 줄(위 선, 아래 선) 사이 높이를 같은 자리에서 잰 좌·우 평균. 선이 뒤집혀 0 이하면 null. */
+    static double[] lineGap(List<Pt> upper, List<Pt> lower, double halfLeft, double halfRight) {
+        List<Pt> a = upper.stream().sorted(java.util.Comparator.comparingDouble(Pt::x)).toList();
+        List<Pt> b = lower.stream().sorted(java.util.Comparator.comparingDouble(Pt::x)).toList();
+        double[] out = new double[2];
+        for (int side = 0; side < 2; side++) {
+            double half = side == 0 ? -halfLeft : halfRight;
+            for (double u : LIP_SPOTS) {
+                out[side] += (lineY(b, u * half) - lineY(a, u * half)) / LIP_SPOTS.length;
+            }
+        }
+        return out[0] > 0 && out[1] > 0 ? out : null;
+    }
+
     // ---------- 영역·마스크 ----------
 
     /** 얼굴 좌표 사각형을 덮는 픽셀 격자(큰 사진은 건너뛰며 봄). 각 칸의 얼굴 좌표와 Lab을 미리 계산. */

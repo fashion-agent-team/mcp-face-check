@@ -51,7 +51,7 @@ final class MakeupAnalyzer {
         List<Check> checks = new ArrayList<>();
         FaceLabels labels = parser.ready() ? parser.parse(img, frame) : null;
         brows(s, frame, img, labels, checks);
-        lips(s, frame, img, checks);
+        lips(s, frame, img, labels, checks);
         List<String> skipped = colors(s, frame, img, checks);
         return result(checks, skipped, t.maxNotes());
     }
@@ -209,7 +209,7 @@ final class MakeupAnalyzer {
 
     // ---------- 입술 ----------
 
-    private void lips(Sides s, FaceFrame f, BufferedImage img, List<Check> checks) {
+    private void lips(Sides s, FaceFrame f, BufferedImage img, FaceLabels labels, List<Check> checks) {
         List<Pt> top = f.local(s.upperLipTop);
         List<Pt> bottom = f.local(s.lowerLipBottom);
         MakeupPixels.Lips px = MakeupPixels.lips(img, f, polygon(top, bottom), f.local(s.upperLipBottom),
@@ -229,6 +229,13 @@ final class MakeupAnalyzer {
             check("lipHalfWidth", (px.halfLeft() - bone.halfLeft()) - (px.halfRight() - bone.halfRight()),
                     t.lipHalfWidth(), basis, checks);
         }
+        // 입술 선: 분할 모델이 나눈 윗입술·아랫입술 칸의 두께를 좌우 비교하고, 같은 자리의 윤곽점 두께 비를 빼서
+        // 타고난 비대칭을 지움(윤곽점은 넘겨 그린 선을 거의 안 따라감). CelebA: 윗입술 좌우 흔들림 0.45 → 0.18,
+        // 한쪽 윗입술을 0.06~0.1 IOD 넘겨 그린 것 검출 60% → 85%. 분할 모델이 없을 때만 아래 밝기·윤곽점 방식으로
+        if (labels != null) {
+            lipLines(s, f, labels, top, bottom, checks);
+            return;
+        }
         Double up = lm.upRatio() != null ? lm.upRatio()
                 : lm.up() != null && lm.up()[0] > 0.02 && lm.up()[1] > 0.02 ? ratio(lm.up()[0], lm.up()[1]) : null;
         Double down = lm.downRatio() != null ? lm.downRatio()
@@ -239,6 +246,30 @@ final class MakeupAnalyzer {
         }
         if (down != null) {
             check("lowerLipLine", down, t.lipLine(), basis, checks);
+        }
+    }
+
+    /** 분할 모델로 잰 입술 선 두께 비 − 윤곽점 두께 비. 입술 칸이 거의 없으면(입을 가림·누드 립 일부) 재지 않음 */
+    private void lipLines(Sides s, FaceFrame f, FaceLabels labels, List<Pt> top, List<Pt> bottom, List<Check> checks) {
+        MakeupPixels.Lips shape = landmarkLips(s, f, top, bottom);
+        if (shape == null) {
+            return;
+        }
+        double yTop = min(top, Pt::y) - 0.15;
+        double yBot = max(bottom, Pt::y) + 0.15;
+        List<Pt> upperBottom = f.local(s.upperLipBottom);
+        List<Pt> lowerTop = f.local(s.lowerLipTop);
+        lipLine("upperLipLine", MakeupPixels.lipThickness(labels, FaceLabels.U_LIP, shape.halfLeft(),
+                shape.halfRight(), yTop, yBot), MakeupPixels.lineGap(top, upperBottom, shape.halfLeft(),
+                shape.halfRight()), checks);
+        lipLine("lowerLipLine", MakeupPixels.lipThickness(labels, FaceLabels.L_LIP, shape.halfLeft(),
+                shape.halfRight(), yTop, yBot), MakeupPixels.lineGap(lowerTop, bottom, shape.halfLeft(),
+                shape.halfRight()), checks);
+    }
+
+    private void lipLine(String name, double[] seg, double[] bone, List<Check> checks) {
+        if (seg != null && bone != null) {
+            check(name, ratio(seg[0], seg[1]) - ratio(bone[0], bone[1]), t.lipLine(), PIXELS, checks);
         }
     }
 

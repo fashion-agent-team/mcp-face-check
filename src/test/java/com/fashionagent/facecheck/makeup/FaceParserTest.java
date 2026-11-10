@@ -98,6 +98,43 @@ class FaceParserTest {
     }
 
     @Test
+    @DisplayName("윗입술 왼쪽을 위로 넘겨 그리면 분할 칸 두께가 그만큼 두꺼워짐, 윤곽점 두께는 그대로")
+    void upperLipOverdrawn() {
+        FaceLabels lab = grid(new double[] {0.15, 0.95, -0.45, -0.33}, new double[] {0.15, 0.95, -0.45, -0.33});
+        byte[] b = lab.labels();
+        for (int j = 0; j < N; j++) {
+            for (int i = 0; i < N; i++) {
+                double x = lab.x(i);
+                double y = lab.y(j);
+                double top = x < 0 ? 1.15 : 1.2; // 왼쪽(화면 x<0)만 0.05 위로
+                if (Math.abs(x) < 0.5 && y > top && y < 1.3) {
+                    b[j * N + i] = FaceLabels.U_LIP;
+                } else if (Math.abs(x) < 0.5 && y > 1.3 && y < 1.42) {
+                    b[j * N + i] = FaceLabels.L_LIP;
+                }
+            }
+        }
+        double[] up = MakeupPixels.lipThickness(lab, FaceLabels.U_LIP, 0.5, 0.5, 1.0, 1.6);
+        assertThat(up[0]).isCloseTo(0.15, org.assertj.core.data.Offset.offset(0.025));
+        assertThat(up[1]).isCloseTo(0.10, org.assertj.core.data.Offset.offset(0.025));
+        double[] down = MakeupPixels.lipThickness(lab, FaceLabels.L_LIP, 0.5, 0.5, 1.0, 1.6);
+        assertThat(down[0]).isCloseTo(down[1], org.assertj.core.data.Offset.offset(0.021));
+        // 윤곽점(넘겨 그린 선을 안 따라감): 좌우 같은 두께
+        List<Pt> lipTop = List.of(new Pt(-0.5, 1.2), new Pt(0, 1.2), new Pt(0.5, 1.2));
+        List<Pt> lipMid = List.of(new Pt(0.5, 1.3), new Pt(-0.5, 1.3), new Pt(0, 1.3));
+        double[] gap = MakeupPixels.lineGap(lipTop, lipMid, 0.5, 0.5);
+        assertThat(gap[0]).isCloseTo(0.1, org.assertj.core.data.Offset.offset(1e-9));
+        assertThat(gap[1]).isCloseTo(0.1, org.assertj.core.data.Offset.offset(1e-9));
+    }
+
+    @Test
+    @DisplayName("입술 칸이 한쪽에 없으면 null(입술 선은 재지 않음)")
+    void noLip() {
+        FaceLabels lab = grid(new double[] {0.15, 0.95, -0.45, -0.33}, new double[] {0.15, 0.95, -0.45, -0.33});
+        assertThat(MakeupPixels.lipThickness(lab, FaceLabels.U_LIP, 0.5, 0.5, 1.0, 1.6)).isNull();
+    }
+
+    @Test
     @DisplayName("레포에 든 ONNX 모델을 읽고 512x512로 나눔")
     void onnxModel() throws Exception {
         try (OnnxFaceParser p = new OnnxFaceParser(new ClassPathResource("models/face_parsing_bisenet_fp16.onnx"))) {
