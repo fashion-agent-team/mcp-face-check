@@ -1,5 +1,6 @@
-"""얼굴 분할 모델(BiSeNet, CelebAMask-HQ 19분류)을 서버용 ONNX(fp16)로 만든다.
-→ src/main/resources/models/face_parsing_bisenet_fp16.onnx (서버 OnnxFaceParser가 읽음)
+"""그전에 쓰던 얼굴 분할 모델(BiSeNet ResNet18, CelebAMask-HQ 19분류)을 ONNX(fp16)로 만든다(모델 비교용).
+→ src/main/resources/models/face_parsing_bisenet_fp16.onnx. 2026-11-10부터 서버는 fetch_face_parsing_r34.py의 ResNet34를 씀
+(비교: docs/face-parsing-models.md). 다시 쓰려면 --face.parsing.model=classpath:models/face_parsing_bisenet_fp16.onnx
 
 가중치: zllrunning/face-parsing.PyTorch의 79999_iter.pth(MIT 코드, CelebAMask-HQ로 학습 → 비상업 연구용).
 원래 배포처(Google Drive)가 막힌 곳에서도 받을 수 있게 공개 Docker Hub 이미지(eygsoft/face-parsing)의 레이어에서 꺼낸다.
