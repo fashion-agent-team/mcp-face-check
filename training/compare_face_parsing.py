@@ -53,6 +53,12 @@ def sign_test(b, c):
 
 def detect(args):
     runs = [(a.split("=", 1)[0], json.load(open(a.split("=", 1)[1]))) for a in args]
+    # 사진 수가 다른 실행(--n을 줄여 잰 느린 모델)이 섞이면 모두 가진 사진만 남겨 같은 조건으로 비교
+    plain = set.intersection(*({p["_file"] for p in d["plain"]} for _, d in runs))
+    edited = set.intersection(*({e["file"] for e in d["edited"]} for _, d in runs))
+    runs = [(n, {"plain": [p for p in d["plain"] if p["_file"] in plain],
+                 "edited": [e for e in d["edited"] if e["file"] in edited]}) for n, d in runs]
+    print(f"같이 잰 사진: 그리지 않은 {len(plain)}장, 그려 넣은 {len(edited)}장")
     base_name, base = runs[0]
     for edit, (lo, hi) in EDITS.items():
         edges = np.linspace(lo, hi, 6)

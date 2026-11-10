@@ -11,6 +11,7 @@
 - 가장 많이 나아진 것은 가장 약했던 눈썹 길이입니다. 평균 18%에서 22%가 됐고, 중간 크기는 8%에서 18%가 됐습니다(새로 잡음 24, 놓침 8, p=0.007).
 - 대신 한 장에 50ms쯤 더 걸립니다(86ms → 136ms). 앱이 3~5장을 보내므로 요청 하나가 0.15~0.25초 늘어납니다.
 - ResNet18 다른 학습본은 그전 모델과 차이가 없었습니다(p=0.73).
+- SegFormer는 더 낫지 않았고(같은 609장에서 4항목 평균 그전 48.0%, ResNet34 50.5%, SegFormer 47.8%), 한 장에 약 1초·339MB라 쓸 수 없습니다.
 
 ## 후보
 
@@ -19,15 +20,14 @@
 | BiSeNet ResNet18 (그전) | zllrunning/face-parsing.PyTorch 가중치, Docker Hub `eygsoft/face-parsing`에서 꺼냄 | CelebAMask-HQ 19 | 26MB | 비교 기준 |
 | BiSeNet ResNet18 (다른 학습본) | yakhyo/face-parsing 릴리스 ONNX (MIT) | CelebAMask-HQ 19 | 27MB | 그전과 같음 |
 | **BiSeNet ResNet34** | yakhyo/face-parsing 릴리스 ONNX (MIT) | CelebAMask-HQ 19 | 47MB | **채택** |
-| FaRL (LaPa / CelebAMask) | FacePerceiver/facer 릴리스 (MIT) | 11 / 19 | 원본 646MB | 재지 못함(아래) |
-| SegFormer 얼굴 분할 | Hugging Face `jonathandinu/face-parsing` | CelebAMask-HQ 19 | 약 85MB | 받지 못함(아래) |
+| FaRL (LaPa / CelebAMask) | FacePerceiver/facer 릴리스 (MIT) | 11 / 19 | 원본 646MB | 변환 실패로 재지 못함(아래) |
+| SegFormer 얼굴 분할 | Hugging Face `jonathandinu/face-parsing` (맥에서 받아 변환) | CelebAMask-HQ 19 | 170MB (fp32 339MB) | 더 낫지 않음, 느리고 큼 |
 | MediaPipe 다중 분할 | Google | 머리카락·얼굴 피부 등 6 | 16MB | 눈썹·입술 분류가 없어 제외 |
 | ML Kit·MediaPipe 얼굴 윤곽점 | Google | (점) | - | 지금도 위치용으로 씀. 그린 화장을 안 따라가서 분할 대신 쓸 수 없음 |
 
 재지 못한 모델:
 
-- **FaRL**: 모델 파일이 646MB라 GitHub 파일 한도(100MB)와 서버 메모리에 맞지 않습니다. 또 TorchScript 파일이라 받은 코드를 실행해야 해서, 이 개발 환경에서는 안전 규칙상 돌리지 않았습니다. 그래서 정확도는 재지 못했습니다.
-- **SegFormer**: 개발 환경에서 Hugging Face 접속이 막혀 받지 못했습니다.
+- **FaRL**: 모델 파일이 646MB라 GitHub 파일 한도(100MB)와 서버 메모리에 맞지 않습니다. TorchScript 파일이라 개발 컨테이너에서는 돌리지 않았고, 맥에서 ONNX로 바꾸는 것(`farl_split.py`)도 모델 본체 변환에서 실패해 정확도는 재지 못했습니다. ViT-B를 448×448로 돌리는 모델이라 크기와 속도는 SegFormer와 비슷하거나 더 무거울 것으로 봅니다.
 
 ## 속도·크기
 
@@ -38,6 +38,9 @@
 | ResNet18 (그전) | 26.3MB | 86ms | - | - | - |
 | ResNet18 (다른 학습본) | 26.6MB | 88ms | 53.2MB | 78ms | 655MB |
 | **ResNet34** | **46.9MB** | **136ms** | 93.6MB | 122ms | 679MB |
+| SegFormer | 170MB | 약 470초(아래) | 339MB | 약 1,000ms | 1,780MB (fp32) |
+
+SegFormer fp16은 이 CPU에서 fp16 연산이 비정상적으로 느려 한 장에 8분 가까이 걸렸습니다. 그래서 검출률은 fp32로 쟀습니다.
 
 fp32가 조금 빠르지만 ResNet34 fp32는 93.6MB로 GitHub 파일 한도에 가까워서 fp16을 넣었습니다. 두 버전은 분류 결과가 거의 같습니다.
 
@@ -62,7 +65,21 @@ fp32가 조금 빠르지만 ResNet34 fp32는 93.6MB로 GitHub 파일 한도에 �
 | ResNet18 (다른 학습본) | 70 | 65 | 0.73 |
 | **ResNet34** | **98** | **67** | **0.019** |
 
-ResNet34의 항목별 결과입니다.
+### SegFormer (사진 609장)
+
+SegFormer는 한 장에 1초쯤 걸려서 2,832장 대신 앞쪽 1,000장 후보 중 609장으로 쟀습니다. 아래 표는 세 모델을 같은 609장으로 맞춘 값입니다(사진이 적어 위 표보다 흔들림이 큽니다).
+
+| 항목 | 그전 | ResNet34 | SegFormer |
+| --- | --- | --- | --- |
+| 눈썹 높이 | 61% | 66% | 63% |
+| 눈썹 길이 | 18% | 26% | 19% |
+| 눈썹 두께 | 39% | 33% | 31% |
+| 윗입술 선 | 74% | 77% | 78% |
+| **4항목 평균** | 48.0% | **50.5%** | 47.8% |
+
+그전 모델 대비 짝지은 비교는 ResNet34 새로 잡음 21·놓침 15(p=0.41), SegFormer 새로 잡음 17·놓침 20(p=0.74)입니다. SegFormer는 윗입술 선만 조금 낫고 눈썹 두께는 더 못해서, 7배 느리고 7배 큰 값을 할 만큼의 이득이 없습니다.
+
+ResNet34의 항목별 결과입니다(2,832장).
 
 | 항목 | 새로 잡음 | 놓침 |
 | --- | --- | --- |
@@ -94,9 +111,10 @@ ResNet34로 CelebA 2,832장을 다시 재서 정했습니다(p95).
    - 모델마다 서버를 `--face.parsing.model=file:<onnx>`로 띄웁니다.
    - `public_baseline.py <CelebA> --n 5000`(`--apply` 없이)을 돌리고, `out/public_baseline.json`을 모델별로 복사합니다.
    - `python3 training/compare_face_parsing.py detect 그전=a.json r34=b.json`
+   - 느린 모델은 `--n 1000`처럼 줄여서 재도 됩니다. 비교할 때 모든 실행에 있는 사진만 남겨 같은 조건으로 맞춥니다.
 
 ## 한계
 
-- 평가 사진은 CelebA이고, 비교한 모델은 모두 CelebAMask-HQ(CelebA에서 고른 사진)로 학습했습니다. 그래서 실제 셀카보다 점수가 좋게 나올 수 있습니다. 다만 세 모델이 같은 조건이라 순위 비교에는 문제없습니다.
+- 평가 사진은 CelebA이고, 비교한 모델은 모두 CelebAMask-HQ(CelebA에서 고른 사진)로 학습했습니다. 그래서 실제 셀카보다 점수가 좋게 나올 수 있습니다. 다만 모든 모델이 같은 조건이라 순위 비교에는 문제없습니다.
 - CelebAMask-HQ는 비상업 연구용 데이터입니다. 그전 모델과 같은 조건입니다.
 - 속도는 컨테이너 CPU 기준입니다. 실제 서버 CPU에서는 달라질 수 있습니다.
