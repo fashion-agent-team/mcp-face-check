@@ -75,6 +75,22 @@ record FaceLabels(byte[] labels, int size, double x0, double y0, double span) {
         return xs.get((int) Math.min(xs.size() - 1, Math.round(0.99 * (xs.size() - 1))));
     }
 
+    /** 이 결과에 other의 눈썹 칸을 더한 것(어느 한쪽이라도 눈썹이라고 한 칸은 눈썹). 격자가 다르면 그대로 */
+    FaceLabels withBrowsFrom(FaceLabels other) {
+        if (other == null || other.size != size || other.labels.length != labels.length) {
+            return this;
+        }
+        byte[] out = labels.clone();
+        for (int k = 0; k < out.length; k++) {
+            int c = other.labels[k] & 0xff;
+            int me = out[k] & 0xff;
+            if ((c == L_BROW || c == R_BROW) && me != L_BROW && me != R_BROW) {
+                out[k] = (byte) c;
+            }
+        }
+        return new FaceLabels(out, size, x0, y0, span);
+    }
+
     boolean brow(int i, int j) {
         int c = at(i, j);
         return c == L_BROW || c == R_BROW;

@@ -61,20 +61,72 @@ final class OnnxFaceParser implements FaceParser, AutoCloseable {
 
     @Override
     public FaceLabels parse(BufferedImage img, FaceFrame f) {
+        return run(img, f, false);
+    }
+
+    @Override
+    public FaceLabels parseMirrored(BufferedImage img, FaceFrame f) {
+        return run(img, f, true);
+    }
+
+    private FaceLabels run(BufferedImage img, FaceFrame f, boolean mirror) {
         if (session == null) {
             return null;
         }
         double x0 = -SPAN / 2;
         double y0 = CENTER_Y - SPAN / 2;
         float[] chw = input(img, f, x0, y0);
+        if (mirror) {
+            for (int row = 0; row < 3 * SIZE; row++) {
+                reverse(chw, row * SIZE);
+            }
+        }
         try (OnnxTensor t = OnnxTensor.createTensor(env, FloatBuffer.wrap(chw), new long[] {1, 3, SIZE, SIZE});
                 OrtSession.Result r = session.run(Map.of(inputName, t))) {
             byte[] labels = new byte[SIZE * SIZE];
             ((OnnxTensor) r.get(0)).getByteBuffer().get(labels);
+            if (mirror) {
+                for (int j = 0; j < SIZE; j++) {
+                    reverse(labels, j * SIZE);
+                }
+                for (int k = 0; k < labels.length; k++) {
+                    labels[k] = (byte) MIRROR[labels[k] & 0xff];
+                }
+            }
             return new FaceLabels(labels, SIZE, x0, y0, SPAN);
         } catch (OrtException ex) {
             log.warn("얼굴 분할 실패: {}", ex.toString());
             return null;
+        }
+    }
+
+    /** 좌우를 뒤집으면 왼쪽·오른쪽 분류가 바뀜: 눈썹 2↔3, 눈 4↔5, 귀 7↔8 */
+    private static final int[] MIRROR = new int[256];
+
+    static {
+        for (int c = 0; c < 256; c++) {
+            MIRROR[c] = c;
+        }
+        int[][] swap = {{2, 3}, {4, 5}, {7, 8}};
+        for (int[] p : swap) {
+            MIRROR[p[0]] = p[1];
+            MIRROR[p[1]] = p[0];
+        }
+    }
+
+    private static void reverse(float[] a, int from) {
+        for (int i = 0, k = SIZE - 1; i < k; i++, k--) {
+            float t = a[from + i];
+            a[from + i] = a[from + k];
+            a[from + k] = t;
+        }
+    }
+
+    private static void reverse(byte[] a, int from) {
+        for (int i = 0, k = SIZE - 1; i < k; i++, k--) {
+            byte t = a[from + i];
+            a[from + i] = a[from + k];
+            a[from + k] = t;
         }
     }
 
