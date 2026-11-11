@@ -8,6 +8,9 @@ import com.fashionagent.facecheck.FaceCheckProperties;
 import com.fashionagent.facecheck.SyntheticFace;
 import com.fashionagent.facecheck.makeup.MakeupResult.Check;
 import java.awt.Color;
+import java.awt.image.BufferedImage;
+import java.awt.image.ConvolveOp;
+import java.awt.image.Kernel;
 import java.util.List;
 import java.util.function.UnaryOperator;
 import org.junit.jupiter.api.DisplayName;
@@ -19,7 +22,7 @@ import tools.jackson.databind.json.JsonMapper;
 class MakeupAnalyzerTest {
 
     static final FaceCheckProperties.Symmetry T = new FaceCheckProperties.Symmetry(
-            0.07, 0.09, 0.15, 0.046, 0.25, 0.009, 0.05, 0.12, 0.014, 0.25, 6, 10, 15, 28, 12, 25, 0.15, 3);
+            0.07, 0.09, 0.15, 0.046, 0.053, 0.25, 0.009, 0.05, 0.12, 0.014, 0.25, 6, 10, 15, 28, 12, 25, 0.15, 3);
     static final JsonMapper JSON = JsonMapper.builder().build();
 
     final MakeupAnalyzer analyzer = new MakeupAnalyzer(T);
@@ -45,6 +48,27 @@ class MakeupAnalyzerTest {
         assertThat(r.symmetry().checks()).extracting(Check::name).containsExactly(
                 "browHeight", "browTail", "browLength", "browThickness", "lipCorner", "lipHalfWidth",
                 "upperLipLine", "lowerLipLine", "cheekColor", "lipColor");
+    }
+
+    @Test
+    @DisplayName("길이 모델이 있어도 눈썹 조각이 흐리면 길이는 재지 않고 skipped에 browLength")
+    void blurrySkipsBrowLength() {
+        var models = new PairModels((img, f) -> -0.3, null, null);
+        var a = new MakeupAnalyzer(T, FaceParser.NONE, models);
+        var face = new SyntheticFace();
+        FaceLandmarks lm = JSON.convertValue(face.landmarks(), FaceLandmarks.class);
+        BufferedImage sharp = face.image();
+
+        MakeupResult r = a.analyze(lm, sharp);
+        assertThat(r.symmetry().checks()).extracting(Check::name).contains("browLength");
+        assertThat(r.symmetry().skipped()).doesNotContain("browLength");
+
+        float[] k = new float[15 * 15];
+        java.util.Arrays.fill(k, 1f / k.length);
+        BufferedImage blurred = new ConvolveOp(new Kernel(15, 15, k), ConvolveOp.EDGE_NO_OP, null).filter(sharp, null);
+        MakeupResult b = a.analyze(lm, blurred);
+        assertThat(b.symmetry().checks()).extracting(Check::name).doesNotContain("browLength");
+        assertThat(b.symmetry().skipped()).contains("browLength");
     }
 
     @Test

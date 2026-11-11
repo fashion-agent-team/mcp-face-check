@@ -16,7 +16,7 @@ public record MakeupResult(String framing, String lighting, Symmetry symmetry) {
      * @param ok      좌우가 고르면 true
      * @param notes   읽어 줄 한국어 문장(차이가 큰 순서, 최대 face.symmetry.max-notes개)
      * @param checks  계산한 항목 전부(training/에서 기준값을 학습할 때 쓰는 값)
-     * @param skipped 조명 때문에 건너뛴 항목(cheekColor, lipColor)
+     * @param skipped 조명 때문에 건너뛴 항목(cheekColor, lipColor), 사진이 흐려서 건너뛴 눈썹 길이(browLength)
      * @param frames  판단에 쓴 장면 수(여러 장을 보내면 항목별 중간값)
      */
     public record Symmetry(boolean ok, List<String> notes, List<Check> checks, List<String> skipped, int frames) {
