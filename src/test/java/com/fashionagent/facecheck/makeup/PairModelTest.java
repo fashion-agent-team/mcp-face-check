@@ -11,12 +11,22 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.ClassPathResource;
 
-class BrowLengthModelTest {
+class PairModelTest {
 
     @Test
     @DisplayName("눈썹 길이 모델: 사진을 좌우로 뒤집으면 점수 부호만 바뀜(같은 모델을 양쪽에 써서 좌우 버릇이 없음)")
-    void mirroredFlipsSign() throws Exception {
-        try (OnnxBrowLength m = new OnnxBrowLength(new ClassPathResource("models/brow_length.onnx"))) {
+    void browMirroredFlipsSign() throws Exception {
+        mirroredFlipsSign("models/brow_length.onnx", OnnxPairModel.Region.BROW);
+    }
+
+    @Test
+    @DisplayName("입술 너비 모델: 사진을 좌우로 뒤집으면 점수 부호만 바뀜")
+    void lipMirroredFlipsSign() throws Exception {
+        mirroredFlipsSign("models/lip_width.onnx", OnnxPairModel.Region.LIP_CORNER);
+    }
+
+    static void mirroredFlipsSign(String path, OnnxPairModel.Region region) throws Exception {
+        try (OnnxPairModel m = new OnnxPairModel(new ClassPathResource(path), region)) {
             var face = new SyntheticFace();
             BufferedImage img = face.image();
             var lm = MakeupAnalyzerTest.JSON.convertValue(face.landmarks(), FaceLandmarks.class);
@@ -37,11 +47,11 @@ class BrowLengthModelTest {
     }
 
     @Test
-    @DisplayName("눈썹 길이 모델 파일이 없으면 null, 분석은 분할 결과로 길이를 잼")
+    @DisplayName("모델 파일이 없으면 null, 그 항목은 그전 방식으로 잼")
     void missingModel() throws Exception {
-        try (OnnxBrowLength m = new OnnxBrowLength(new ClassPathResource("models/none.onnx"))) {
+        try (OnnxPairModel m = new OnnxPairModel(new ClassPathResource("models/none.onnx"), OnnxPairModel.Region.BROW)) {
             assertThat(m.score(new SyntheticFace().image(), FaceFrame.of(new Pt(0, 0), new Pt(10, 0)))).isNull();
         }
-        assertThat(BrowLengthModel.NONE.score(null, null)).isNull();
+        assertThat(PairModel.NONE.score(null, null)).isNull();
     }
 }

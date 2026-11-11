@@ -1,13 +1,14 @@
-"""눈썹 길이 모델 학습: 좌우 눈썹 조각을 같은 작은 CNN에 넣어 점수를 내고, 왼쪽 − 오른쪽이 지운 비율(부호 있음)이 되게 학습.
+"""좌우 비교 모델 학습(눈썹 길이, 입술 너비): 좌우 조각을 같은 작은 CNN에 넣어 점수를 내고, 왼쪽 − 오른쪽이 정답(부호 있음)이 되게 학습.
 같은 CNN을 양쪽에 쓰고 빼므로 좌우를 바꾸면 부호만 바뀜(타고난 비대칭을 학습하지 않음). CPU 4코어 약 25분.
-끝나면 src/main/resources/models/brow_length.onnx로 내보냄. 기준값은 서버를 켜고 public_baseline.py로 다시 재서 brow-length-model에.
+끝나면 src/main/resources/models/<이름>.onnx로 내보냄. 기준값은 서버를 켜고 public_baseline.py로 다시 재서 brow-length-model·lip-half-width-model에.
 
-사용: python train_brow_length.py [에폭=15]  (먼저 brow_length_data.py)"""
+사용: python train_pair_model.py brow_length|lip_width [에폭=15]  (먼저 brow_length_data.py 또는 lip_width_data.py)"""
 import sys, json, numpy as np, torch, torch.nn as nn
 torch.manual_seed(0); torch.set_num_threads(4)
 import pathlib
 HERE = pathlib.Path(__file__).parent
-d = np.load(HERE / 'out/brow_length_train.npz'); A, B, Y = d['a'], d['b'], d['y'].astype(np.float32)
+NAME = sys.argv[1]
+d = np.load(HERE / f'out/{NAME}_train.npz'); A, B, Y = d['a'], d['b'], d['y'].astype(np.float32)
 n = len(Y); idx = np.random.default_rng(0).permutation(n); va = idx[: n // 10]; tr = idx[n // 10:]
 def t(x): return torch.from_numpy(x).permute(0, 3, 1, 2).float() / 255.0
 class Net(nn.Module):
@@ -17,7 +18,7 @@ class Net(nn.Module):
         s.f = nn.Sequential(blk(3, 16), blk(16, 32), blk(32, 64), blk(64, 96), nn.AdaptiveAvgPool2d(1), nn.Flatten(), nn.Linear(96, 1))
     def forward(s, a, b): return (s.f(a) - s.f(b)).squeeze(1)
 net = Net(); opt = torch.optim.AdamW(net.parameters(), 2e-3, weight_decay=1e-4)
-EP = int(sys.argv[1]) if len(sys.argv) > 1 else 15
+EP = int(sys.argv[2]) if len(sys.argv) > 2 else 15
 sched = torch.optim.lr_scheduler.OneCycleLR(opt, 3e-3, total_steps=EP * (len(tr) // 64 + 1))
 def aug(x):
     # 밝기·대비 흔들기, 작은 이동
@@ -40,12 +41,12 @@ for ep in range(EP):
 
 net.eval()
 class Wrap(nn.Module):
-    """입력: [2,3,80,128] RGB 0~1 (0=사진 왼쪽 눈썹, 1=오른쪽 눈썹을 좌우로 뒤집은 것, 둘 다 바깥 끝이 왼쪽). 출력: [1] 왼쪽이 짧을수록 +"""
+    """입력: [2,3,H,W] RGB 0~1 (0=사진 왼쪽 조각, 1=오른쪽 조각을 좌우로 뒤집은 것, 둘 다 바깥쪽이 왼쪽). 출력: [1] 0번 − 1번"""
     def __init__(s, n): super().__init__(); s.n = n
     def forward(s, x):
         x = x[:, [2, 1, 0]]
         e = s.n.f(x)
         return (e[0:1] - e[1:2]).reshape(1)
 w = Wrap(net).eval()
-x = torch.rand(2, 3, 80, 128)
-torch.onnx.export(w, x, str(HERE.parent / 'src/main/resources/models/brow_length.onnx'), input_names=['patches'], output_names=['score'], opset_version=17, dynamo=False)
+x = torch.rand(2, 3, A.shape[1], A.shape[2])
+torch.onnx.export(w, x, str(HERE.parent / f'src/main/resources/models/{NAME}.onnx'), input_names=['patches'], output_names=['score'], opset_version=17, dynamo=False)

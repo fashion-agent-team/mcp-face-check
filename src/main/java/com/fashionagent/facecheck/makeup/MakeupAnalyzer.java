@@ -24,20 +24,20 @@ final class MakeupAnalyzer {
 
     private final FaceCheckProperties.Symmetry t;
     private final FaceParser parser;
-    private final BrowLengthModel browLength;
+    private final PairModels models;
 
     MakeupAnalyzer(FaceCheckProperties.Symmetry thresholds) {
         this(thresholds, FaceParser.NONE);
     }
 
     MakeupAnalyzer(FaceCheckProperties.Symmetry thresholds, FaceParser parser) {
-        this(thresholds, parser, BrowLengthModel.NONE);
+        this(thresholds, parser, PairModels.NONE);
     }
 
-    MakeupAnalyzer(FaceCheckProperties.Symmetry thresholds, FaceParser parser, BrowLengthModel browLength) {
+    MakeupAnalyzer(FaceCheckProperties.Symmetry thresholds, FaceParser parser, PairModels models) {
         this.t = thresholds;
         this.parser = parser == null ? FaceParser.NONE : parser;
-        this.browLength = browLength == null ? BrowLengthModel.NONE : browLength;
+        this.models = models == null ? PairModels.NONE : models;
     }
 
     MakeupResult analyze(FaceLandmarks lm, BufferedImage img) {
@@ -195,7 +195,7 @@ final class MakeupAnalyzer {
         Check tail = check("browTail", bl.tail() - br.tail(), t.browTail(), basis, checks);
         // 길이: 눈썹 길이 모델이 있으면 그 점수로(왼쪽이 짧으면 +라서 부호를 바꿈: 값의 부호는 긴 쪽). CelebA: 한쪽 꼬리를 지운 것
         // 검출 22% → 84%(같은 2,832장, 같은 사진 짝 새로 잡음 263 / 놓침 3). 모델이 없거나 실패하면 분할·밝기·윤곽점으로 잰 길이 비
-        Double model = browLength.score(img, f);
+        Double model = models.browLength().score(img, f);
         Check length = model != null ? check("browLength", -model, t.browLengthModel(), PIXELS, checks)
                 : check("browLength", ratio(bl.length(), br.length()), t.browLength(), basis, checks);
         // 두께는 뒤집어 나눈 결과의 눈썹 칸을 더해서 잼: 모델이 덧그린 아래쪽을 한쪽에서만 눈썹으로 보는 일이 많아서
@@ -252,8 +252,13 @@ final class MakeupAnalyzer {
         // 입술 너비: 사진에서 나눈 입꼬리가 윤곽점 입꼬리보다 얼마나 더 나갔는지(IOD)를 좌우 비교. 윤곽점은 그린 선을 거의 안 따라가고
         // 웃음·고개 돌림 같은 원래 비대칭은 같이 따라가서, 빼면 "더 그린 만큼"만 남음
         // (CelebA: 좌우 흔들림 0.16 → 0.05, 한쪽 입꼬리를 밖으로 그린 것 검출 20% → 41%). 색으로 못 나누면(누드 립) 재지 않음
+        // 입술 너비 모델이 있으면 그 점수로(사진 왼쪽 입꼬리를 더 길게 그렸으면 +). CelebA: 한쪽 입꼬리를 밖으로 그린 것
+        // 검출 20% → 82%(같은 2,832장, 같은 사진 짝 새로 잡음 252 / 놓침 3). 없거나 실패하면 아래 색·윤곽점 방식
+        Double width = models.lipWidth().score(img, f);
         MakeupPixels.Lips bone = px != null ? landmarkLips(s, f, top, bottom) : null;
-        if (bone != null) {
+        if (width != null) {
+            check("lipHalfWidth", width, t.lipHalfWidthModel(), PIXELS, checks);
+        } else if (bone != null) {
             check("lipHalfWidth", (px.halfLeft() - bone.halfLeft()) - (px.halfRight() - bone.halfRight()),
                     t.lipHalfWidth(), basis, checks);
         }

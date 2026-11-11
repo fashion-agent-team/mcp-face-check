@@ -11,4 +11,5 @@ face:
     lip-color: 7.134
     lip-corner: 0.084
     lip-half-width: 0.103
+    lip-half-width-model: 0.015
     lip-line: 0.163
