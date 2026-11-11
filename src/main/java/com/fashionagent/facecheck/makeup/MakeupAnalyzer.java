@@ -382,7 +382,14 @@ final class MakeupAnalyzer {
         if (Math.abs(ml.l() - mr.l()) > t.unevenLight()) {
             return List.of("cheekColor", "lipColor");
         }
-        Check cheek = check("cheekColor", ml.a() - mr.a(), t.cheekRedness(), COLOR, checks);
+        // 볼 터치 모델이 있으면 그 점수로(사진 왼쪽 볼에 더 발랐으면 +). 평균 붉은 정도(a*)는 볼 크기·위치가 조금만 달라도 흔들려서
+        // 옅게 바른 것을 놓쳤음. CelebA 2,832장: 58% → 77%, 같은 사진 짝 +74 / −7(분홍·코랄·베리 계열. 브론즈처럼 붉지 않은 색은 거의 못 잡음)
+        Double cheekModel = models.cheekColor().score(img, f);
+        if (cheekModel != null) {
+            check("cheekColor", cheekModel, t.cheekColorModel(), COLOR, checks);
+        } else {
+            check("cheekColor", ml.a() - mr.a(), t.cheekRedness(), COLOR, checks);
+        }
 
         LabMean ll = new LabMean();
         LabMean lr = new LabMean();
