@@ -41,12 +41,18 @@ public record FaceCheckProperties(
             @DefaultValue("0.09") double browTail,
             /** 눈썹 길이 차이 비율. */
             @DefaultValue("0.15") double browLength,
+            /** 눈썹 길이 모델(brow_length.onnx) 점수 기준. 모델이 있을 때 browLength 대신 씀. */
+            @DefaultValue("0.045") double browLengthModel,
             /** 눈썹 두께 차이 비율 (위·아래 윤곽이 다 있을 때). */
             @DefaultValue("0.25") double browThickness,
+            /** 눈썹 두께 모델(brow_thickness.onnx) 점수 기준. 모델이 있을 때 browThickness 대신 씀. */
+            @DefaultValue("0.010") double browThicknessModel,
             /** 입꼬리 높이 차이, IOD. */
             @DefaultValue("0.05") double lipCorner,
             /** 입술 반쪽 너비: 사진 입꼬리가 윤곽점 입꼬리보다 더 나간 길이의 좌우 차이, IOD. */
             @DefaultValue("0.10") double lipHalfWidth,
+            /** 입술 너비 모델(lip_width.onnx) 점수 기준. 모델이 있을 때 lipHalfWidth 대신 씀. */
+            @DefaultValue("0.015") double lipHalfWidthModel,
             /** 윗입술·아랫입술 선 높이 차이 비율. */
             @DefaultValue("0.25") double lipLine,
             /** 볼 붉은 정도(CIELAB a*) 차이. */

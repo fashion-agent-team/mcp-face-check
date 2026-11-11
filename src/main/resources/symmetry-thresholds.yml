@@ -4,10 +4,13 @@ face:
   symmetry:
     brow-height: 0.041
     brow-length: 0.213
+    brow-length-model: 0.045
     brow-tail: 0.063
     brow-thickness: 0.141
+    brow-thickness-model: 0.010
     cheek-redness: 5.417
     lip-color: 7.134
     lip-corner: 0.084
     lip-half-width: 0.103
+    lip-half-width-model: 0.015
     lip-line: 0.163

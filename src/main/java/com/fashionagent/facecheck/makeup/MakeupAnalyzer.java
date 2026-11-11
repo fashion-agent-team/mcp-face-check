@@ -24,14 +24,20 @@ final class MakeupAnalyzer {
 
     private final FaceCheckProperties.Symmetry t;
     private final FaceParser parser;
+    private final PairModels models;
 
     MakeupAnalyzer(FaceCheckProperties.Symmetry thresholds) {
         this(thresholds, FaceParser.NONE);
     }
 
     MakeupAnalyzer(FaceCheckProperties.Symmetry thresholds, FaceParser parser) {
+        this(thresholds, parser, PairModels.NONE);
+    }
+
+    MakeupAnalyzer(FaceCheckProperties.Symmetry thresholds, FaceParser parser, PairModels models) {
         this.t = thresholds;
         this.parser = parser == null ? FaceParser.NONE : parser;
+        this.models = models == null ? PairModels.NONE : models;
     }
 
     MakeupResult analyze(FaceLandmarks lm, BufferedImage img) {
@@ -50,8 +56,10 @@ final class MakeupAnalyzer {
 
         List<Check> checks = new ArrayList<>();
         FaceLabels labels = parser.ready() ? parser.parse(img, frame) : null;
-        FaceLabels mirrored = labels != null ? parser.parseMirrored(img, frame) : null;
-        brows(s, frame, img, labels, mirrored, checks);
+        // 두께 모델이 있으면 뒤집어 한 번 더 나누기(두께에만 씀, 약 0.1초)는 하지 않음
+        Double thickModel = models.browThickness().score(img, frame);
+        FaceLabels mirrored = labels != null && thickModel == null ? parser.parseMirrored(img, frame) : null;
+        brows(s, frame, img, labels, mirrored, thickModel, checks);
         lips(s, frame, img, labels, checks);
         List<String> skipped = colors(s, frame, img, checks);
         return result(checks, skipped, t.maxNotes());
@@ -63,6 +71,8 @@ final class MakeupAnalyzer {
         List<String> notes = checks.stream()
                 .filter(c -> !c.ok() && c.side() != null)
                 .filter(c -> !(c.name().equals("browTail") && !heightOk)) // 높이에서 말했으면 꼬리는 겹쳐 말하지 않음
+                // 길이 모델은 한쪽 눈썹을 올려 그린 것도 길이 차이로 볼 때가 있어서(CelebA 21%) 높이에서 말했으면 길이는 말하지 않음
+                .filter(c -> !(c.name().equals("browLength") && !heightOk))
                 .sorted(Comparator.comparingDouble((Check c) -> c.limit() == 0 ? c.value() : c.value() / c.limit()).reversed())
                 .limit(maxNotes)
                 .map(MakeupAnalyzer::note)
@@ -159,7 +169,7 @@ final class MakeupAnalyzer {
     // ---------- 눈썹 ----------
 
     private void brows(Sides s, FaceFrame f, BufferedImage img, FaceLabels labels, FaceLabels mirrored,
-            List<Check> checks) {
+            Double thickModel, List<Check> checks) {
         List<Pt> lt = f.local(s.leftBrowTop);
         List<Pt> rt = f.local(s.rightBrowTop);
         List<Pt> lb = f.local(s.leftBrowBottom);
@@ -185,7 +195,11 @@ final class MakeupAnalyzer {
         Check height = check("browHeight", bl.center() - br.center(), t.browHeight(), basis, checks);
         // 꼬리: 높이에서 이미 말했으면 겹쳐 말하지 않음
         Check tail = check("browTail", bl.tail() - br.tail(), t.browTail(), basis, checks);
-        Check length = check("browLength", ratio(bl.length(), br.length()), t.browLength(), basis, checks);
+        // 길이: 눈썹 길이 모델이 있으면 그 점수로(왼쪽이 짧으면 +라서 부호를 바꿈: 값의 부호는 긴 쪽). CelebA: 한쪽 꼬리를 지운 것
+        // 검출 22% → 84%(같은 2,832장, 같은 사진 짝 새로 잡음 263 / 놓침 3). 모델이 없거나 실패하면 분할·밝기·윤곽점으로 잰 길이 비
+        Double model = models.browLength().score(img, f);
+        Check length = model != null ? check("browLength", -model, t.browLengthModel(), PIXELS, checks)
+                : check("browLength", ratio(bl.length(), br.length()), t.browLength(), basis, checks);
         // 두께는 뒤집어 나눈 결과의 눈썹 칸을 더해서 잼: 모델이 덧그린 아래쪽을 한쪽에서만 눈썹으로 보는 일이 많아서
         // (CelebA: 한쪽을 두껍게 그린 것 검출 45% → 53%, 같은 사진 짝 새로 잡음 45 / 놓침 8). 높이·길이는 원래 결과가 더 나음
         double thickL = bl.thickness();
@@ -199,8 +213,11 @@ final class MakeupAnalyzer {
                 thickR = ur.thickness();
             }
         }
-        if (thickL > 0 && thickR > 0) {
-            Check thick = check("browThickness", ratio(thickL, thickR), t.browThickness(), basis, checks);
+        // 두께 모델이 있으면 그 점수로(사진 왼쪽 눈썹을 더 두껍게 그렸으면 +). CelebA 2,832장: 한쪽을 두껍게 그린 것 검출 51% → 92%(같은 사진 짝 +178 / −6)
+        if (thickModel != null) {
+            check("browThickness", thickModel, t.browThicknessModel(), PIXELS, checks);
+        } else if (thickL > 0 && thickR > 0) {
+            check("browThickness", ratio(thickL, thickR), t.browThickness(), basis, checks);
         }
     }
 
@@ -240,8 +257,13 @@ final class MakeupAnalyzer {
         // 입술 너비: 사진에서 나눈 입꼬리가 윤곽점 입꼬리보다 얼마나 더 나갔는지(IOD)를 좌우 비교. 윤곽점은 그린 선을 거의 안 따라가고
         // 웃음·고개 돌림 같은 원래 비대칭은 같이 따라가서, 빼면 "더 그린 만큼"만 남음
         // (CelebA: 좌우 흔들림 0.16 → 0.05, 한쪽 입꼬리를 밖으로 그린 것 검출 20% → 41%). 색으로 못 나누면(누드 립) 재지 않음
+        // 입술 너비 모델이 있으면 그 점수로(사진 왼쪽 입꼬리를 더 길게 그렸으면 +). CelebA: 한쪽 입꼬리를 밖으로 그린 것
+        // 검출 20% → 82%(같은 2,832장, 같은 사진 짝 새로 잡음 252 / 놓침 3). 없거나 실패하면 아래 색·윤곽점 방식
+        Double width = models.lipWidth().score(img, f);
         MakeupPixels.Lips bone = px != null ? landmarkLips(s, f, top, bottom) : null;
-        if (bone != null) {
+        if (width != null) {
+            check("lipHalfWidth", width, t.lipHalfWidthModel(), PIXELS, checks);
+        } else if (bone != null) {
             check("lipHalfWidth", (px.halfLeft() - bone.halfLeft()) - (px.halfRight() - bone.halfRight()),
                     t.lipHalfWidth(), basis, checks);
         }
