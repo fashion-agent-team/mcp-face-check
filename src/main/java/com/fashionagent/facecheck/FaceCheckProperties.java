@@ -41,6 +41,8 @@ public record FaceCheckProperties(
             @DefaultValue("0.09") double browTail,
             /** 눈썹 길이 차이 비율. */
             @DefaultValue("0.15") double browLength,
+            /** 눈썹 길이 모델(OnnxBrowLength) 점수 기준. 모델이 있을 때 browLength 대신 씀. */
+            @DefaultValue("0.045") double browLengthModel,
             /** 눈썹 두께 차이 비율 (위·아래 윤곽이 다 있을 때). */
             @DefaultValue("0.25") double browThickness,
             /** 입꼬리 높이 차이, IOD. */

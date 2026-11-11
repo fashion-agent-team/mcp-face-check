@@ -24,14 +24,20 @@ final class MakeupAnalyzer {
 
     private final FaceCheckProperties.Symmetry t;
     private final FaceParser parser;
+    private final BrowLengthModel browLength;
 
     MakeupAnalyzer(FaceCheckProperties.Symmetry thresholds) {
         this(thresholds, FaceParser.NONE);
     }
 
     MakeupAnalyzer(FaceCheckProperties.Symmetry thresholds, FaceParser parser) {
+        this(thresholds, parser, BrowLengthModel.NONE);
+    }
+
+    MakeupAnalyzer(FaceCheckProperties.Symmetry thresholds, FaceParser parser, BrowLengthModel browLength) {
         this.t = thresholds;
         this.parser = parser == null ? FaceParser.NONE : parser;
+        this.browLength = browLength == null ? BrowLengthModel.NONE : browLength;
     }
 
     MakeupResult analyze(FaceLandmarks lm, BufferedImage img) {
@@ -63,6 +69,8 @@ final class MakeupAnalyzer {
         List<String> notes = checks.stream()
                 .filter(c -> !c.ok() && c.side() != null)
                 .filter(c -> !(c.name().equals("browTail") && !heightOk)) // 높이에서 말했으면 꼬리는 겹쳐 말하지 않음
+                // 길이 모델은 한쪽 눈썹을 올려 그린 것도 길이 차이로 볼 때가 있어서(CelebA 21%) 높이에서 말했으면 길이는 말하지 않음
+                .filter(c -> !(c.name().equals("browLength") && !heightOk))
                 .sorted(Comparator.comparingDouble((Check c) -> c.limit() == 0 ? c.value() : c.value() / c.limit()).reversed())
                 .limit(maxNotes)
                 .map(MakeupAnalyzer::note)
@@ -185,7 +193,11 @@ final class MakeupAnalyzer {
         Check height = check("browHeight", bl.center() - br.center(), t.browHeight(), basis, checks);
         // 꼬리: 높이에서 이미 말했으면 겹쳐 말하지 않음
         Check tail = check("browTail", bl.tail() - br.tail(), t.browTail(), basis, checks);
-        Check length = check("browLength", ratio(bl.length(), br.length()), t.browLength(), basis, checks);
+        // 길이: 눈썹 길이 모델이 있으면 그 점수로(왼쪽이 짧으면 +라서 부호를 바꿈: 값의 부호는 긴 쪽). CelebA: 한쪽 꼬리를 지운 것
+        // 검출 22% → 84%(같은 2,832장, 같은 사진 짝 새로 잡음 263 / 놓침 3). 모델이 없거나 실패하면 분할·밝기·윤곽점으로 잰 길이 비
+        Double model = browLength.score(img, f);
+        Check length = model != null ? check("browLength", -model, t.browLengthModel(), PIXELS, checks)
+                : check("browLength", ratio(bl.length(), br.length()), t.browLength(), basis, checks);
         // 두께는 뒤집어 나눈 결과의 눈썹 칸을 더해서 잼: 모델이 덧그린 아래쪽을 한쪽에서만 눈썹으로 보는 일이 많아서
         // (CelebA: 한쪽을 두껍게 그린 것 검출 45% → 53%, 같은 사진 짝 새로 잡음 45 / 놓침 8). 높이·길이는 원래 결과가 더 나음
         double thickL = bl.thickness();

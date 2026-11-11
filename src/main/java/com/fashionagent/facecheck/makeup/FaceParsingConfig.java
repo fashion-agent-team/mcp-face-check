@@ -14,4 +14,11 @@ class FaceParsingConfig {
             @Value("${face.parsing.model:classpath:models/face_parsing_bisenet_r34_fp16.onnx}") String model) {
         return new OnnxFaceParser(model.isBlank() ? null : loader.getResource(model));
     }
+
+    /** face.brow-length.model: 눈썹 길이 모델 ONNX 위치. 비우거나 파일이 없으면 분할 결과로 길이를 잼. */
+    @Bean(destroyMethod = "close")
+    OnnxBrowLength browLengthModel(ResourceLoader loader,
+            @Value("${face.brow-length.model:classpath:models/brow_length.onnx}") String model) {
+        return new OnnxBrowLength(model.isBlank() ? null : loader.getResource(model));
+    }
 }

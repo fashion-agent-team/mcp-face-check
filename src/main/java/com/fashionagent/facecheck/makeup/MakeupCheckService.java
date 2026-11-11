@@ -30,13 +30,13 @@ public class MakeupCheckService {
     private final MakeupAnalyzer analyzer;
 
     public MakeupCheckService(FaceCheckProperties props) {
-        this(props, FaceParser.NONE);
+        this(props, FaceParser.NONE, BrowLengthModel.NONE);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
-    MakeupCheckService(FaceCheckProperties props, FaceParser parser) {
+    MakeupCheckService(FaceCheckProperties props, FaceParser parser, BrowLengthModel browLength) {
         this.props = props;
-        this.analyzer = new MakeupAnalyzer(props.symmetry(), parser);
+        this.analyzer = new MakeupAnalyzer(props.symmetry(), parser, browLength);
     }
 
     public MakeupResult check(String imageBase64, FaceLandmarks landmarks) {
