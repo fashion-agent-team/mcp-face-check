@@ -20,6 +20,12 @@ class PairModelTest {
     }
 
     @Test
+    @DisplayName("눈썹 두께 모델: 사진을 좌우로 뒤집으면 점수 부호만 바뀜")
+    void thicknessMirroredFlipsSign() throws Exception {
+        mirroredFlipsSign("models/brow_thickness.onnx", OnnxPairModel.Region.BROW);
+    }
+
+    @Test
     @DisplayName("입술 너비 모델: 사진을 좌우로 뒤집으면 점수 부호만 바뀜")
     void lipMirroredFlipsSign() throws Exception {
         mirroredFlipsSign("models/lip_width.onnx", OnnxPairModel.Region.LIP_CORNER);

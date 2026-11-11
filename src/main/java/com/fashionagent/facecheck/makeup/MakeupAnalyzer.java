@@ -56,8 +56,10 @@ final class MakeupAnalyzer {
 
         List<Check> checks = new ArrayList<>();
         FaceLabels labels = parser.ready() ? parser.parse(img, frame) : null;
-        FaceLabels mirrored = labels != null ? parser.parseMirrored(img, frame) : null;
-        brows(s, frame, img, labels, mirrored, checks);
+        // 두께 모델이 있으면 뒤집어 한 번 더 나누기(두께에만 씀, 약 0.1초)는 하지 않음
+        Double thickModel = models.browThickness().score(img, frame);
+        FaceLabels mirrored = labels != null && thickModel == null ? parser.parseMirrored(img, frame) : null;
+        brows(s, frame, img, labels, mirrored, thickModel, checks);
         lips(s, frame, img, labels, checks);
         List<String> skipped = colors(s, frame, img, checks);
         return result(checks, skipped, t.maxNotes());
@@ -167,7 +169,7 @@ final class MakeupAnalyzer {
     // ---------- 눈썹 ----------
 
     private void brows(Sides s, FaceFrame f, BufferedImage img, FaceLabels labels, FaceLabels mirrored,
-            List<Check> checks) {
+            Double thickModel, List<Check> checks) {
         List<Pt> lt = f.local(s.leftBrowTop);
         List<Pt> rt = f.local(s.rightBrowTop);
         List<Pt> lb = f.local(s.leftBrowBottom);
@@ -211,8 +213,11 @@ final class MakeupAnalyzer {
                 thickR = ur.thickness();
             }
         }
-        if (thickL > 0 && thickR > 0) {
-            Check thick = check("browThickness", ratio(thickL, thickR), t.browThickness(), basis, checks);
+        // 두께 모델이 있으면 그 점수로(사진 왼쪽 눈썹을 더 두껍게 그렸으면 +). CelebA 2,832장: 한쪽을 두껍게 그린 것 검출 51% → 92%(같은 사진 짝 +178 / −6)
+        if (thickModel != null) {
+            check("browThickness", thickModel, t.browThicknessModel(), PIXELS, checks);
+        } else if (thickL > 0 && thickR > 0) {
+            check("browThickness", ratio(thickL, thickR), t.browThickness(), basis, checks);
         }
     }
 

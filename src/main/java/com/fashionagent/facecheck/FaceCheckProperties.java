@@ -45,6 +45,8 @@ public record FaceCheckProperties(
             @DefaultValue("0.045") double browLengthModel,
             /** 눈썹 두께 차이 비율 (위·아래 윤곽이 다 있을 때). */
             @DefaultValue("0.25") double browThickness,
+            /** 눈썹 두께 모델(brow_thickness.onnx) 점수 기준. 모델이 있을 때 browThickness 대신 씀. */
+            @DefaultValue("0.010") double browThicknessModel,
             /** 입꼬리 높이 차이, IOD. */
             @DefaultValue("0.05") double lipCorner,
             /** 입술 반쪽 너비: 사진 입꼬리가 윤곽점 입꼬리보다 더 나간 길이의 좌우 차이, IOD. */

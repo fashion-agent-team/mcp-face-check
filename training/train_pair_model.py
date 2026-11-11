@@ -2,7 +2,7 @@
 같은 CNN을 양쪽에 쓰고 빼므로 좌우를 바꾸면 부호만 바뀜(타고난 비대칭을 학습하지 않음). CPU 4코어 약 25분.
 끝나면 src/main/resources/models/<이름>.onnx로 내보냄. 기준값은 서버를 켜고 public_baseline.py로 다시 재서 brow-length-model·lip-half-width-model에.
 
-사용: python train_pair_model.py brow_length|lip_width [에폭=15]  (먼저 brow_length_data.py 또는 lip_width_data.py)"""
+사용: python train_pair_model.py brow_length|brow_thickness|lip_width [에폭=15]  (먼저 brow_length_data.py 또는 lip_width_data.py)"""
 import sys, json, numpy as np, torch, torch.nn as nn
 torch.manual_seed(0); torch.set_num_threads(4)
 import pathlib
