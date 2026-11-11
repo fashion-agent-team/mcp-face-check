@@ -135,6 +135,21 @@ class FaceParserTest {
     }
 
     @Test
+    @DisplayName("뒤집어 나눈 결과의 눈썹 칸을 더하면 한쪽에서만 본 덧그린 부분까지 두께에 들어감")
+    void browsUnion() {
+        double[] brow = {0.15, 0.95, -0.45, -0.33};
+        double[] thicker = {0.15, 0.95, -0.45, -0.27};
+        FaceLabels a = grid(brow, brow);
+        FaceLabels b = grid(thicker, brow); // 다른 쪽 결과는 왼쪽 아래를 더 눈썹으로 봄
+        FaceLabels u = a.withBrowsFrom(b);
+        assertThat(MakeupPixels.brow(u, -1, 0.45).thickness())
+                .isGreaterThan(MakeupPixels.brow(a, -1, 0.45).thickness() + 0.04);
+        assertThat(MakeupPixels.brow(u, 1, 0.45).thickness())
+                .isCloseTo(MakeupPixels.brow(a, 1, 0.45).thickness(), org.assertj.core.data.Offset.offset(1e-9));
+        assertThat(a.withBrowsFrom(null)).isSameAs(a);
+    }
+
+    @Test
     @DisplayName("레포에 든 ONNX 모델을 읽고 512x512로 나눔")
     void onnxModel() throws Exception {
         try (OnnxFaceParser p = new OnnxFaceParser(new ClassPathResource("models/face_parsing_bisenet_r34_fp16.onnx"))) {
@@ -149,6 +164,14 @@ class FaceParserTest {
             for (byte b : lab.labels()) {
                 assertThat(b & 0xff).isLessThan(19);
             }
+            // 뒤집어 나눈 결과도 원래 방향으로 돌아와야 함: 대부분의 칸이 같은 분류
+            FaceLabels mir = p.parseMirrored(img, FaceFrame.of(Pt.mean(le), Pt.mean(re)));
+            assertThat(mir.size()).isEqualTo(512);
+            int same = 0;
+            for (int k = 0; k < mir.labels().length; k++) {
+                same += mir.labels()[k] == lab.labels()[k] ? 1 : 0;
+            }
+            assertThat(same).isGreaterThan(mir.labels().length * 8 / 10); // 합성 얼굴에서 약 90%
         }
     }
 

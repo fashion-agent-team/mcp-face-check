@@ -50,7 +50,8 @@ final class MakeupAnalyzer {
 
         List<Check> checks = new ArrayList<>();
         FaceLabels labels = parser.ready() ? parser.parse(img, frame) : null;
-        brows(s, frame, img, labels, checks);
+        FaceLabels mirrored = labels != null ? parser.parseMirrored(img, frame) : null;
+        brows(s, frame, img, labels, mirrored, checks);
         lips(s, frame, img, labels, checks);
         List<String> skipped = colors(s, frame, img, checks);
         return result(checks, skipped, t.maxNotes());
@@ -157,7 +158,8 @@ final class MakeupAnalyzer {
 
     // ---------- 눈썹 ----------
 
-    private void brows(Sides s, FaceFrame f, BufferedImage img, FaceLabels labels, List<Check> checks) {
+    private void brows(Sides s, FaceFrame f, BufferedImage img, FaceLabels labels, FaceLabels mirrored,
+            List<Check> checks) {
         List<Pt> lt = f.local(s.leftBrowTop);
         List<Pt> rt = f.local(s.rightBrowTop);
         List<Pt> lb = f.local(s.leftBrowBottom);
@@ -171,7 +173,8 @@ final class MakeupAnalyzer {
         // 한쪽이라도 안 되면 다음 방법으로 둘 다 잼(좌우를 같은 방법으로 비교)
         MakeupPixels.Brow pl = labels == null ? null : MakeupPixels.brow(labels, -1, eyeL);
         MakeupPixels.Brow pr = pl == null ? null : MakeupPixels.brow(labels, 1, eyeR);
-        if (pl == null || pr == null) {
+        boolean seg = pl != null && pr != null;
+        if (!seg) {
             pl = MakeupPixels.brow(img, f, -1, concat(lt, lb), browPoly(lt, lb), face, eyeL);
             pr = pl == null ? null : MakeupPixels.brow(img, f, 1, concat(rt, rb), browPoly(rt, rb), face, eyeR);
         }
@@ -183,8 +186,21 @@ final class MakeupAnalyzer {
         // 꼬리: 높이에서 이미 말했으면 겹쳐 말하지 않음
         Check tail = check("browTail", bl.tail() - br.tail(), t.browTail(), basis, checks);
         Check length = check("browLength", ratio(bl.length(), br.length()), t.browLength(), basis, checks);
-        if (bl.thickness() > 0 && br.thickness() > 0) {
-            Check thick = check("browThickness", ratio(bl.thickness(), br.thickness()), t.browThickness(), basis, checks);
+        // 두께는 뒤집어 나눈 결과의 눈썹 칸을 더해서 잼: 모델이 덧그린 아래쪽을 한쪽에서만 눈썹으로 보는 일이 많아서
+        // (CelebA: 한쪽을 두껍게 그린 것 검출 45% → 53%, 같은 사진 짝 새로 잡음 45 / 놓침 8). 높이·길이는 원래 결과가 더 나음
+        double thickL = bl.thickness();
+        double thickR = br.thickness();
+        if (seg && mirrored != null) {
+            FaceLabels union = labels.withBrowsFrom(mirrored);
+            MakeupPixels.Brow ul = MakeupPixels.brow(union, -1, eyeL);
+            MakeupPixels.Brow ur = ul == null ? null : MakeupPixels.brow(union, 1, eyeR);
+            if (ul != null && ur != null) {
+                thickL = ul.thickness();
+                thickR = ur.thickness();
+            }
+        }
+        if (thickL > 0 && thickR > 0) {
+            Check thick = check("browThickness", ratio(thickL, thickR), t.browThickness(), basis, checks);
         }
     }
 

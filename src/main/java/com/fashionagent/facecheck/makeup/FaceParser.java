@@ -14,6 +14,14 @@ interface FaceParser {
     /** 얼굴 좌표(FaceFrame) 기준 격자로 나눈 결과. 실패하면 null. */
     FaceLabels parse(BufferedImage img, FaceFrame f);
 
+    /**
+     * 사진을 좌우로 뒤집어 나눈 뒤 다시 뒤집어 돌려준 결과(왼쪽·오른쪽 분류 번호도 바꿔 맞춤). 모델이 왼쪽·오른쪽 눈썹을 조금 다르게
+     * 그리는 버릇을 덜어 내려고 씀. 지원하지 않거나 실패하면 null.
+     */
+    default FaceLabels parseMirrored(BufferedImage img, FaceFrame f) {
+        return null;
+    }
+
     FaceParser NONE = new FaceParser() {
         @Override
         public boolean ready() {
