@@ -57,6 +57,8 @@ public record FaceCheckProperties(
             @DefaultValue("0.25") double lipLine,
             /** 볼 붉은 정도(CIELAB a*) 차이. */
             @DefaultValue("6") double cheekRedness,
+            /** 볼 터치 모델(cheek_color.onnx) 점수 기준. 모델이 있을 때 cheekRedness 대신 씀. */
+            @DefaultValue("0.080") double cheekColorModel,
             /** 입술 색 차이 (CIELAB ΔE76). */
             @DefaultValue("10") double lipColor,
             /** 좌우 밝기(L*) 차이가 이보다 크면 한쪽이 그늘진 것으로 보고 색 비교를 건너뜀. */
