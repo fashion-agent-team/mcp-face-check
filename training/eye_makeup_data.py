@@ -5,7 +5,7 @@
 따뜻한 조명(정답 0), 볼 블러셔·입술 색만 바꾼 사진(정답 0), 사진 전체 흐림·노이즈.
 CelebA는 비상업 연구용: 사진·만든 파일은 올리지 마세요.
 
-사용: python eye_makeup_data.py <CelebA 폴더> [사진 수=30000] [REP=2]  → out/eye_makeup_train.npz"""
+사용: python eye_makeup_data.py <CelebA 폴더> [사진 수=30000] [REP=2] [묶음 번호]  → out/eye_makeup[_번호]_train.npz"""
 import sys, pathlib, numpy as np, cv2, multiprocessing as mp
 from make_demo_data import MODEL, Editor, Landmarker, fetch, IDX
 from public_baseline import attrs, boxes, selfie, MAX_YAW
@@ -77,7 +77,7 @@ def edit(img, pts, rng):
     """정답: 사진 왼쪽 눈이 더 진하면 +"""
     E = Editor(img, pts); u = rng.random(); y = 0.0; ed = img
     if u < 0.6:
-        side = bool(rng.integers(2)); a = float(rng.uniform(0.05, 0.8))
+        side = bool(rng.integers(2)); a = float(rng.uniform(0.1, 0.85))
         ed = eye_shadow(img, pts, side, a, rng); y = a if side else -a
         if rng.random() < .3:   # 양쪽에 다 바르고 한쪽만 더(같은 색은 아니어도 됨, 정답은 차이)
             extra = float(rng.uniform(0, .5)) * a
@@ -96,24 +96,32 @@ def edit(img, pts, rng):
 
 
 det = None
+REDETECT = False   # 편집한 사진에서 윤곽점을 다시 찾으면 2배 느림. 눈화장은 윤곽점을 거의 안 움직여서 원본 윤곽점을 씀
+SEED = 0
 def work(args):
     global det
     k, f, box = args
     if det is None: det = Landmarker(fetch(MODEL, HERE / '.cache/face_landmarker.task'))
-    rng = np.random.default_rng(k)
-    img = selfie(cv2.imread(str(C / 'Img/img_celeba' / f)), box)
+    rng = np.random.default_rng(k + SEED)
+    raw = cv2.imread(str(C / 'Img/img_celeba' / f))
+    if raw is None: return None   # 받다 끊긴 파일
+    img = selfie(raw, box)
     if rng.integers(2): img = cv2.flip(img, 1)
     found = det(img)
     if not found or abs(found[0]["yaw"]) > MAX_YAW: return None
     ed, y = edit(img, found[1], rng)
-    ed = jpg(ed); f2 = det(ed)
-    if not f2: return None
-    a, b = patches(ed, f2[1])
+    ed = jpg(ed)
+    if REDETECT:
+        f2 = det(ed)
+        if not f2: return None
+        found = f2
+    a, b = patches(ed, found[1])
     return f, y, a, b
 
 
 if __name__ == '__main__':
     n = int(sys.argv[2]) if len(sys.argv) > 2 else 30000; REP = int(sys.argv[3]) if len(sys.argv) > 3 else 2
+    SEED = int(sys.argv[4]) * 10_000_000 if len(sys.argv) > 4 else 0; part = f'_{sys.argv[4]}' if len(sys.argv) > 4 else ''
     from public_baseline import WANT
     evalset = {f for f, at in attrs(C) if all(at[k] == v for k, v in WANT.items())}
     box = boxes(C)
@@ -125,5 +133,5 @@ if __name__ == '__main__':
         for i, r in enumerate(p.imap(work, [(k, f, box[f]) for k, f in enumerate(files * REP)], chunksize=8)):
             if r: res.append(r)
             if i % 2000 == 0: print(i, len(res), flush=True)
-    (HERE / 'out').mkdir(exist_ok=True); np.savez_compressed(HERE / 'out/eye_makeup_train.npz', a=np.stack([r[2] for r in res]), b=np.stack([r[3] for r in res]), y=np.array([r[1] for r in res], np.float32))
+    (HERE / 'out').mkdir(exist_ok=True); np.savez_compressed(HERE / f'out/eye_makeup{part}_train.npz', a=np.stack([r[2] for r in res]), b=np.stack([r[3] for r in res]), y=np.array([r[1] for r in res], np.float32))
     print('done', len(res))
