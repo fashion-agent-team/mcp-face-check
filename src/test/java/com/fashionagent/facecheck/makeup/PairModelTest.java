@@ -26,6 +26,12 @@ class PairModelTest {
     }
 
     @Test
+    @DisplayName("볼 터치 모델: 사진을 좌우로 뒤집으면 점수 부호만 바뀜")
+    void cheekMirroredFlipsSign() throws Exception {
+        mirroredFlipsSign("models/cheek_color.onnx", OnnxPairModel.Region.CHEEK);
+    }
+
+    @Test
     @DisplayName("입술 너비 모델: 사진을 좌우로 뒤집으면 점수 부호만 바뀜")
     void lipMirroredFlipsSign() throws Exception {
         mirroredFlipsSign("models/lip_width.onnx", OnnxPairModel.Region.LIP_CORNER);

@@ -25,6 +25,8 @@ final class OnnxPairModel implements PairModel, AutoCloseable {
         static final Region BROW = new Region(128, 80, 0.05, 1.45, -0.95, -0.07);
         /** 입꼬리: 바깥 0.85 ~ 가운데 0.05, 눈 아래 0.75 ~ 1.35 */
         static final Region LIP_CORNER = new Region(128, 96, 0.05, 0.85, 0.75, 1.35);
+        /** 볼: 바깥 1.15 ~ 가운데 0.2, 눈 아래 0.15 ~ 1.05 */
+        static final Region CHEEK = new Region(112, 112, 0.2, 1.15, 0.15, 1.05);
     }
 
     private static final Logger log = LoggerFactory.getLogger(OnnxPairModel.class);

@@ -9,6 +9,7 @@ face:
     brow-thickness: 0.141
     brow-thickness-model: 0.010
     cheek-redness: 5.417
+    cheek-color-model: 0.080
     lip-color: 7.134
     lip-corner: 0.084
     lip-half-width: 0.103
