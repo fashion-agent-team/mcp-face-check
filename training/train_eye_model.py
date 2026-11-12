@@ -47,7 +47,7 @@ for ep in range(EP):
     print(f"ep{ep} loss {tot/len(tr):.4f} val corr {np.corrcoef(p, yv)[0,1]:.3f} detect@p95 {np.mean(np.abs(p[e]) > th):.0%}", flush=True)
 # 검증은 같은 사진의 다른 편집이 섞여 있어서 낙관적임. 진짜 평가는 public_baseline.py(평가 사진은 학습에 안 씀)
 
-net.eval()
+net.eval(); torch.save(net.state_dict(), HERE / 'out/eye_makeup.pt')
 class Wrap(nn.Module):
     """입력: [2,3,H,W] RGB 0~1 (0=사진 왼쪽 조각, 1=오른쪽 조각을 좌우로 뒤집은 것, 둘 다 바깥쪽이 왼쪽). 출력: [1] 0번 − 1번"""
     def __init__(s, n): super().__init__(); s.n = n

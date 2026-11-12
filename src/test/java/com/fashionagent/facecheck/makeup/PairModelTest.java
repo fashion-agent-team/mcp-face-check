@@ -37,8 +37,34 @@ class PairModelTest {
         mirroredFlipsSign("models/lip_width.onnx", OnnxPairModel.Region.LIP_CORNER);
     }
 
+    @Test
+    @DisplayName("눈화장 모델 두 개 + 7가지로 옮겨 자르기: 뒤집으면 평균 점수도 부호만 바뀜")
+    void eyeEnsembleMirroredFlipsSign() throws Exception {
+        mirroredFlipsSign(new OnnxPairModel(List.of(new ClassPathResource("models/eye_makeup.onnx"),
+                new ClassPathResource("models/eye_makeup_b.onnx")), OnnxPairModel.Region.EYE, OnnxPairModel.Jitter.SEVEN));
+    }
+
+    @Test
+    @DisplayName("여러 모델 중 없는 파일은 빼고 나머지로 잼")
+    void ensembleSkipsMissing() throws Exception {
+        try (OnnxPairModel one = new OnnxPairModel(new ClassPathResource("models/eye_makeup.onnx"), OnnxPairModel.Region.EYE);
+                OnnxPairModel both = new OnnxPairModel(List.of(new ClassPathResource("models/none.onnx"),
+                        new ClassPathResource("models/eye_makeup.onnx")), OnnxPairModel.Region.EYE, OnnxPairModel.Jitter.NONE)) {
+            var face = new SyntheticFace();
+            var lm = MakeupAnalyzerTest.JSON.convertValue(face.landmarks(), FaceLandmarks.class);
+            BufferedImage img = face.image();
+            FaceFrame fr = FaceFrame.of(Pt.mean(Pt.pixels(lm.leftEye(), img.getWidth(), img.getHeight())),
+                    Pt.mean(Pt.pixels(lm.rightEye(), img.getWidth(), img.getHeight())));
+            assertThat(both.score(img, fr)).isEqualTo(one.score(img, fr));
+        }
+    }
+
     static void mirroredFlipsSign(String path, OnnxPairModel.Region region) throws Exception {
-        try (OnnxPairModel m = new OnnxPairModel(new ClassPathResource(path), region)) {
+        mirroredFlipsSign(new OnnxPairModel(new ClassPathResource(path), region));
+    }
+
+    static void mirroredFlipsSign(OnnxPairModel model) throws Exception {
+        try (OnnxPairModel m = model) {
             var face = new SyntheticFace();
             BufferedImage img = face.image();
             var lm = MakeupAnalyzerTest.JSON.convertValue(face.landmarks(), FaceLandmarks.class);
