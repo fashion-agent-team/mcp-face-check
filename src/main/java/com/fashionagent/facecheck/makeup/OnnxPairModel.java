@@ -109,6 +109,41 @@ final class OnnxPairModel implements PairModel, AutoCloseable {
         return out;
     }
 
+    /**
+     * 양쪽 조각의 선명도: 회색조 라플라시안(3×3, 가장자리는 반사) 절댓값 평균 ÷ 회색조 표준편차. 대비로 나눠서 밝기·화장 진하기와
+     * 상관없이 "윤곽이 얼마나 날카로운지"만 봄. 흐린 사진(초점 나감, 흔들림)일수록 작음.
+     */
+    static double sharpness(float[] patches, Region rg) {
+        int W = rg.w();
+        int H = rg.h();
+        int n = W * H;
+        double lapSum = 0;
+        double sum = 0;
+        double sq = 0;
+        for (int k = 0; k < 2; k++) {
+            float[] g = new float[n];
+            for (int i = 0; i < n; i++) {
+                int o = k * 3 * n + i;
+                g[i] = (float) (0.299 * patches[o] + 0.587 * patches[o + n] + 0.114 * patches[o + 2 * n]);
+                sum += g[i];
+                sq += (double) g[i] * g[i];
+            }
+            for (int j = 0; j < H; j++) {
+                int up = (j == 0 ? 1 : j - 1) * W;
+                int dn = (j == H - 1 ? H - 2 : j + 1) * W;
+                for (int i = 0; i < W; i++) {
+                    int l = i == 0 ? 1 : i - 1;
+                    int r = i == W - 1 ? W - 2 : i + 1;
+                    int row = j * W;
+                    lapSum += Math.abs(g[up + i] + g[dn + i] + g[row + l] + g[row + r] - 4 * g[row + i]);
+                }
+            }
+        }
+        double mean = sum / (2.0 * n);
+        double std = Math.sqrt(Math.max(sq / (2.0 * n) - mean * mean, 0));
+        return lapSum / (2.0 * n) / (std + 1e-3);
+    }
+
     @Override
     public void close() throws OrtException {
         if (session != null) {

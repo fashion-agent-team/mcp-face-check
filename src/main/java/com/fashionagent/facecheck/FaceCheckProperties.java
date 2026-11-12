@@ -43,6 +43,8 @@ public record FaceCheckProperties(
             @DefaultValue("0.15") double browLength,
             /** 눈썹 길이 모델(brow_length.onnx) 점수 기준. 모델이 있을 때 browLength 대신 씀. */
             @DefaultValue("0.045") double browLengthModel,
+            /** 눈썹 조각 선명도(라플라시안 ÷ 대비)가 이보다 낮으면 흐린 사진으로 보고 길이 모델을 쓰지 않음(skipped에 browLength). */
+            @DefaultValue("0.053") double browSharpness,
             /** 눈썹 두께 차이 비율 (위·아래 윤곽이 다 있을 때). */
             @DefaultValue("0.25") double browThickness,
             /** 눈썹 두께 모델(brow_thickness.onnx) 점수 기준. 모델이 있을 때 browThickness 대신 씀. */

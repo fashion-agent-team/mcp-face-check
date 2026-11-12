@@ -59,10 +59,13 @@ final class MakeupAnalyzer {
         // 두께 모델이 있으면 뒤집어 한 번 더 나누기(두께에만 씀, 약 0.1초)는 하지 않음
         Double thickModel = models.browThickness().score(img, frame);
         FaceLabels mirrored = labels != null && thickModel == null ? parser.parseMirrored(img, frame) : null;
-        brows(s, frame, img, labels, mirrored, thickModel, checks);
+        boolean lengthSkipped = brows(s, frame, img, labels, mirrored, thickModel, checks);
         lips(s, frame, img, labels, checks);
-        List<String> skipped = colors(s, frame, img, checks);
-        return result(checks, skipped, t.maxNotes());
+        List<String> skipped = new ArrayList<>(colors(s, frame, img, checks));
+        if (lengthSkipped) {
+            skipped.add("browLength");
+        }
+        return result(checks, List.copyOf(skipped), t.maxNotes());
     }
 
     /** 잰 항목들로 결과를 만듭니다: 기준을 넘은 항목을 (차이 ÷ 기준) 큰 순서로 최대 maxNotes 문장. */
@@ -168,7 +171,8 @@ final class MakeupAnalyzer {
 
     // ---------- 눈썹 ----------
 
-    private void brows(Sides s, FaceFrame f, BufferedImage img, FaceLabels labels, FaceLabels mirrored,
+    /** 눈썹 높이·꼬리·길이·두께. 사진이 흐려서 길이를 건너뛰었으면 true. */
+    private boolean brows(Sides s, FaceFrame f, BufferedImage img, FaceLabels labels, FaceLabels mirrored,
             Double thickModel, List<Check> checks) {
         List<Pt> lt = f.local(s.leftBrowTop);
         List<Pt> rt = f.local(s.rightBrowTop);
@@ -198,8 +202,16 @@ final class MakeupAnalyzer {
         // 길이: 눈썹 길이 모델이 있으면 그 점수로(왼쪽이 짧으면 +라서 부호를 바꿈: 값의 부호는 긴 쪽). CelebA: 한쪽 꼬리를 지운 것
         // 검출 22% → 84%(같은 2,832장, 같은 사진 짝 새로 잡음 263 / 놓침 3). 모델이 없거나 실패하면 분할·밝기·윤곽점으로 잰 길이 비
         Double model = models.browLength().score(img, f);
-        Check length = model != null ? check("browLength", -model, t.browLengthModel(), PIXELS, checks)
-                : check("browLength", ratio(bl.length(), br.length()), t.browLength(), basis, checks);
+        // 흐린 사진(초점 나감·흔들림)에선 길이 모델이 꼬리가 흐릿한 쪽을 짧다고 볼 때가 많아서(CelebA 손대지 않은 사진 300장을
+        // 흐리게 하면 잘못 알림 4% → 16%) 눈썹 조각이 기준(선명한 사진의 하위 5%)보다 흐리면 길이는 재지 않고 skipped에 남김.
+        // 흐린 사진 잘못 알림 16% → 5%. 여러 장을 보내면 선명한 장의 값만 합침
+        boolean blurry = model != null && OnnxPairModel.sharpness(OnnxPairModel.patches(img, f, OnnxPairModel.Region.BROW),
+                OnnxPairModel.Region.BROW) < t.browSharpness();
+        if (model != null && !blurry) {
+            check("browLength", -model, t.browLengthModel(), PIXELS, checks);
+        } else if (model == null) {
+            check("browLength", ratio(bl.length(), br.length()), t.browLength(), basis, checks);
+        }
         // 두께는 뒤집어 나눈 결과의 눈썹 칸을 더해서 잼: 모델이 덧그린 아래쪽을 한쪽에서만 눈썹으로 보는 일이 많아서
         // (CelebA: 한쪽을 두껍게 그린 것 검출 45% → 53%, 같은 사진 짝 새로 잡음 45 / 놓침 8). 높이·길이는 원래 결과가 더 나음
         double thickL = bl.thickness();
@@ -219,6 +231,7 @@ final class MakeupAnalyzer {
         } else if (thickL > 0 && thickR > 0) {
             check("browThickness", ratio(thickL, thickR), t.browThickness(), basis, checks);
         }
+        return blurry;
     }
 
     /** 윤곽점만으로 잰 눈썹(사진에서 나누지 못했을 때). 위·아래 윤곽이 다 있으면 가운데 선과 두께까지. */
