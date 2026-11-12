@@ -8,6 +8,8 @@ import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.FloatBuffer;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,6 +18,7 @@ import org.springframework.core.io.Resource;
 /**
  * 좌우 조각 비교 모델(ONNX, 약 0.8MB). 입력: [2,3,H,W] RGB 0~1. 0번은 사진 왼쪽 조각, 1번은 오른쪽 조각을 좌우로 뒤집은 것
  * (둘 다 바깥쪽이 열 0). 조각 범위는 얼굴 좌표(두 눈 사이 = 1)로 정함. 출력: [1] 점수(0번 − 1번).
+ * 모델을 여러 개 주거나 자르는 범위를 조금씩 옮겨(jitters) 여러 번 재면 점수를 평균함(윤곽점 흔들림·모델 하나의 버릇이 줄어듦).
  */
 final class OnnxPairModel implements PairModel, AutoCloseable {
 
@@ -31,52 +34,82 @@ final class OnnxPairModel implements PairModel, AutoCloseable {
         static final Region EYE = new Region(120, 96, 0.05, 1.05, -0.55, 0.3);
     }
 
+    /** 자르는 범위 옮기기: dx(가운데 쪽 +), dy(아래 +)는 두 눈 사이 = 1 기준, scale은 범위 크기 배율 */
+    record Jitter(double dx, double dy, double scale) {
+        static final List<Jitter> NONE = List.of(new Jitter(0, 0, 1));
+        /** 눈화장 평가(FFHQ)에서 쓴 7가지. training/eye_makeup_data.py의 patches와 같은 규칙 */
+        static final List<Jitter> SEVEN = List.of(new Jitter(0, 0, 1), new Jitter(.03, 0, 1), new Jitter(-.03, 0, 1),
+                new Jitter(0, .03, 1), new Jitter(0, -.03, 1), new Jitter(0, 0, 1.06), new Jitter(0, 0, .94));
+    }
+
     private static final Logger log = LoggerFactory.getLogger(OnnxPairModel.class);
 
     private final Region region;
+    private final List<Jitter> jitters;
     private final OrtEnvironment env;
-    private final OrtSession session;
-    private final String inputName;
+    private final List<OrtSession> sessions;
 
     OnnxPairModel(Resource model, Region region) {
+        this(model == null ? List.of() : List.of(model), region, Jitter.NONE);
+    }
+
+    /** 모델 하나라도 못 읽으면 그 모델만 빼고 씀. 하나도 없으면 score는 null(그전 방식으로 잼) */
+    OnnxPairModel(List<Resource> models, Region region, List<Jitter> jitters) {
         this.region = region;
+        this.jitters = jitters.isEmpty() ? Jitter.NONE : List.copyOf(jitters);
         OrtEnvironment e = null;
-        OrtSession s = null;
-        String in = null;
-        if (model != null && model.exists()) {
+        List<OrtSession> ss = new ArrayList<>();
+        for (Resource model : models) {
+            if (model == null || !model.exists()) {
+                continue;
+            }
             try (InputStream is = model.getInputStream()) {
                 e = OrtEnvironment.getEnvironment();
-                s = e.createSession(is.readAllBytes(), new OrtSession.SessionOptions());
-                in = s.getInputNames().iterator().next();
+                ss.add(e.createSession(is.readAllBytes(), new OrtSession.SessionOptions()));
                 log.info("좌우 비교 모델을 읽었어요: {}", model.getDescription());
             } catch (IOException | OrtException ex) {
-                log.warn("좌우 비교 모델을 읽지 못했어요: {}. 그 항목은 그전 방식으로 잽니다.", ex.toString());
-                s = null;
+                log.warn("좌우 비교 모델을 읽지 못했어요: {}. 그 모델은 빼고 잽니다.", ex.toString());
             }
         }
         this.env = e;
-        this.session = s;
-        this.inputName = in;
+        this.sessions = List.copyOf(ss);
     }
 
     @Override
     public Double score(BufferedImage img, FaceFrame f) {
-        if (session == null) {
+        if (sessions.isEmpty()) {
             return null;
         }
-        try (OnnxTensor t = OnnxTensor.createTensor(env, FloatBuffer.wrap(patches(img, f, region)), new long[] {2, 3, region.h(), region.w()});
-                OrtSession.Result r = session.run(Map.of(inputName, t))) {
-            float[] out = new float[1];
-            ((OnnxTensor) r.get(0)).getFloatBuffer().get(out);
-            return Double.isFinite(out[0]) ? (double) out[0] : null;
-        } catch (OrtException ex) {
-            log.warn("좌우 비교 모델 실패: {}", ex.toString());
-            return null;
+        double sum = 0;
+        int n = 0;
+        for (Jitter j : jitters) {
+            float[] x = patches(img, f, region, j);
+            for (OrtSession s : sessions) {
+                try (OnnxTensor t = OnnxTensor.createTensor(env, FloatBuffer.wrap(x), new long[] {2, 3, region.h(), region.w()});
+                        OrtSession.Result r = s.run(Map.of(s.getInputNames().iterator().next(), t))) {
+                    float[] out = new float[1];
+                    ((OnnxTensor) r.get(0)).getFloatBuffer().get(out);
+                    if (!Double.isFinite(out[0])) {
+                        return null;
+                    }
+                    sum += out[0];
+                    n++;
+                } catch (OrtException ex) {
+                    log.warn("좌우 비교 모델 실패: {}", ex.toString());
+                    return null;
+                }
+            }
         }
+        return sum / n;
+    }
+
+    static float[] patches(BufferedImage img, FaceFrame f, Region rg) {
+        return patches(img, f, rg, Jitter.NONE.get(0));
     }
 
     /** 양쪽 조각을 쌍선형 보간으로 잘라 [2,3,H,W]로. 바깥쪽이 열 0. */
-    static float[] patches(BufferedImage img, FaceFrame f, Region rg) {
+    /** 양쪽 조각을 쌍선형 보간으로 잘라 [2,3,H,W]로. 바깥쪽이 열 0. */
+    static float[] patches(BufferedImage img, FaceFrame f, Region rg, Jitter jt) {
         int W = rg.w();
         int H = rg.h();
         float[] out = new float[2 * 3 * H * W];
@@ -85,9 +118,9 @@ final class OnnxPairModel implements PairModel, AutoCloseable {
         for (int k = 0; k < 2; k++) {
             double sgn = k == 0 ? -1 : 1;
             for (int j = 0; j < H; j++) {
-                double y = rg.yTop() + j * (rg.yBot() - rg.yTop()) / (H - 1);
+                double y = (rg.yTop() + j * (rg.yBot() - rg.yTop()) / (H - 1)) * jt.scale() + jt.dy();
                 for (int i = 0; i < W; i++) {
-                    double x = sgn * (rg.xOut() + i * (rg.xIn() - rg.xOut()) / (W - 1));
+                    double x = sgn * ((rg.xOut() + i * (rg.xIn() - rg.xOut()) / (W - 1)) * jt.scale() - jt.dx());
                     Pt p = f.pixel(new Pt(x, y));
                     double px = Math.min(Math.max(p.x() - 0.5, 0), w - 1.001);
                     double py = Math.min(Math.max(p.y() - 0.5, 0), h - 1.001);
@@ -148,8 +181,8 @@ final class OnnxPairModel implements PairModel, AutoCloseable {
 
     @Override
     public void close() throws OrtException {
-        if (session != null) {
-            session.close();
+        for (OrtSession s : sessions) {
+            s.close();
         }
     }
 }

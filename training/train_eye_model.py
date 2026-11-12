@@ -8,11 +8,12 @@ out/eye_makeup_*_train.npz를 모두 합쳐 씀. 사용: python train_eye_model.
 
 사용: python train_pair_model.py brow_length|brow_thickness|lip_width|cheek_color [에폭=15]  (먼저 brow_length_data.py 또는 lip_width_data.py)"""
 import sys, json, numpy as np, torch, torch.nn as nn
-torch.manual_seed(0); torch.set_num_threads(4)
+torch.manual_seed(7); np.random.seed(7); torch.set_num_threads(4)
 import pathlib
 HERE = pathlib.Path(__file__).parent
 NAME = 'eye_makeup'
-ds = [np.load(p) for p in sorted(HERE.glob('out/eye_makeup_*_train.npz'))]
+# 배포 모델(4판 넓은 망): CelebA 두 묶음 + FFHQ(평가에 안 쓰는 사진) + 머리카락·한쪽 그림자 흉내(eye_hardneg_data.py)
+ds = [np.load(p) for p in sorted(HERE.glob('out/eye_makeup_*_train.npz')) + sorted(HERE.glob('out/eye_hn_*.npz'))]
 A = np.concatenate([d['a'] for d in ds]); B = np.concatenate([d['b'] for d in ds]); Y = np.concatenate([d['y'] for d in ds]).astype(np.float32)
 print(len(Y), flush=True)
 n = len(Y); idx = np.random.default_rng(0).permutation(n); va = idx[: n // 10]; tr = idx[n // 10:]
@@ -21,8 +22,8 @@ class Net(nn.Module):
     def __init__(s):
         super().__init__()
         def blk(i, o): return nn.Sequential(nn.Conv2d(i, o, 3, padding=1), nn.BatchNorm2d(o), nn.ReLU(), nn.Conv2d(o, o, 3, padding=1), nn.BatchNorm2d(o), nn.ReLU(), nn.MaxPool2d(2))
-        s.f = nn.Sequential(blk(3, 16), blk(16, 32), blk(32, 64), blk(64, 96), nn.AdaptiveAvgPool2d(1), nn.Flatten())
-        s.h = nn.Sequential(nn.Linear(192, 64), nn.ReLU(), nn.Linear(64, 1))
+        s.f = nn.Sequential(blk(3, 24), blk(24, 48), blk(48, 96), blk(96, 128), nn.AdaptiveAvgPool2d(1), nn.Flatten())
+        s.h = nn.Sequential(nn.Linear(256, 64), nn.ReLU(), nn.Linear(64, 1))
     def pair(s, ea, eb): return (s.h(torch.cat([ea, eb], 1)) - s.h(torch.cat([eb, ea], 1))).squeeze(1)
     def forward(s, a, b): return s.pair(s.f(a), s.f(b))
 net = Net(); opt = torch.optim.AdamW(net.parameters(), 2e-3, weight_decay=1e-4)
@@ -47,7 +48,7 @@ for ep in range(EP):
     print(f"ep{ep} loss {tot/len(tr):.4f} val corr {np.corrcoef(p, yv)[0,1]:.3f} detect@p95 {np.mean(np.abs(p[e]) > th):.0%}", flush=True)
 # 검증은 같은 사진의 다른 편집이 섞여 있어서 낙관적임. 진짜 평가는 public_baseline.py(평가 사진은 학습에 안 씀)
 
-net.eval()
+net.eval(); torch.save(net.state_dict(), HERE / 'out/eye_makeup.pt')
 class Wrap(nn.Module):
     """입력: [2,3,H,W] RGB 0~1 (0=사진 왼쪽 조각, 1=오른쪽 조각을 좌우로 뒤집은 것, 둘 다 바깥쪽이 왼쪽). 출력: [1] 0번 − 1번"""
     def __init__(s, n): super().__init__(); s.n = n
