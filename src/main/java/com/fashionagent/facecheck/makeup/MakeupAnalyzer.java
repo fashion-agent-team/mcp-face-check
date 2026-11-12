@@ -99,7 +99,7 @@ final class MakeupAnalyzer {
             case "lowerLipLine" -> "아랫입술 선이 " + a + "이 더 도톰하게 그려졌어요.";
             case "cheekColor" -> a + " 볼이 " + b + "보다 더 붉어요. 블러셔가 한쪽에 더 발린 것 같아요.";
             case "lipColor" -> "입술 색이 " + a + "이 " + b + "보다 연해요.";
-            case "eyeMakeup" -> a + " 눈화장이 " + b + "보다 진해요. 아이섀도나 아이라인이 한쪽에 더 발린 것 같아요.";
+            case "eyeMakeup" -> a + " 눈화장이 " + b + "보다 조금 진해 보여요. 아이섀도나 아이라인을 한 번 확인해 보세요.";
             default -> a + "과 " + b + "이 조금 달라 보여요.";
         };
     }

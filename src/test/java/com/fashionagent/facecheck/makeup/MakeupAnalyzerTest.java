@@ -22,7 +22,7 @@ import tools.jackson.databind.json.JsonMapper;
 class MakeupAnalyzerTest {
 
     static final FaceCheckProperties.Symmetry T = new FaceCheckProperties.Symmetry(
-            0.07, 0.09, 0.15, 0.046, 0.053, 0.25, 0.009, 0.05, 0.12, 0.014, 0.25, 6, 0.081, 10, 13, 15, 28, 12, 25, 0.15, 3);
+            0.07, 0.09, 0.15, 0.046, 0.053, 0.25, 0.009, 0.05, 0.12, 0.014, 0.25, 6, 0.081, 10, 15, 15, 28, 12, 25, 0.15, 3);
     static final JsonMapper JSON = JsonMapper.builder().build();
 
     final MakeupAnalyzer analyzer = new MakeupAnalyzer(T);
