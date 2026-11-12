@@ -34,6 +34,8 @@ public final class SyntheticFace {
     public Color lipRight = new Color(188, 62, 74);
     public Color blushLeft = null;
     public Color blushRight = null;
+    /** 사진 왼쪽 눈꺼풀(눈 위 ~ 눈썹 아래)에 칠할 아이섀도. */
+    public Color shadowLeft = null;
     /** 사진 오른쪽 절반을 이만큼 어둡게(0~1). 한쪽 그늘 */
     public double shadeRight = 0;
     /** 전체 밝기 배율 */
@@ -103,6 +105,9 @@ public final class SyntheticFace {
         }
         if (blushRight != null) {
             fill(g, blushRight, ellipse(0.55, 0.55, 0.2, 0.2, 24));
+        }
+        if (shadowLeft != null) {
+            fill(g, shadowLeft, ellipse(-0.5, -0.12, 0.2, 0.09, 24));
         }
         Color brow = new Color(70, 50, 40);
         fill(g, brow, closed(c.get("leftEyebrowTop"), c.get("leftEyebrowBottom")));

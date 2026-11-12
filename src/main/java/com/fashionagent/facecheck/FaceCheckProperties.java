@@ -63,6 +63,8 @@ public record FaceCheckProperties(
             @DefaultValue("0.080") double cheekColorModel,
             /** 입술 색 차이 (CIELAB ΔE76). */
             @DefaultValue("10") double lipColor,
+            /** 눈화장(아이섀도·아이라인): 눈꺼풀이 같은 쪽 눈 밑 피부보다 어두운 정도(L*)의 좌우 차이. */
+            @DefaultValue("15") double eyeMakeup,
             /** 좌우 밝기(L*) 차이가 이보다 크면 한쪽이 그늘진 것으로 보고 색 비교를 건너뜀. */
             @DefaultValue("15") double unevenLight,
             /** 얼굴 평균 밝기(L*)가 이보다 낮으면 lighting=dark. */
