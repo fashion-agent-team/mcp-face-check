@@ -20,7 +20,10 @@ import org.springframework.util.unit.DataSize;
 public class TeethCheckServiceTest {
 
     public static final FaceCheckProperties.Teeth T = new FaceCheckProperties.Teeth(
-            "classpath:models/teeth_mobilenetv3.onnx", 320, 0.7, 0.3, 0.10, 0.15, 0.1, 25);
+            "classpath:models/teeth_mobilenetv3.onnx", 320, 0.4, 0.15, 0.10, 0.15, 0.1, 25, false);
+
+    static final FaceCheckProperties.Teeth MULTI = new FaceCheckProperties.Teeth(
+            "classpath:models/teeth_mobilenetv3.onnx", 320, 0.4, 0.15, 0.10, 0.15, 0.1, 25, true);
 
     static final Map<String, Double> OPEN = Map.of("x", 0.3, "y", 0.4, "w", 0.4, "h", 0.12);
 
@@ -53,7 +56,36 @@ public class TeethCheckServiceTest {
     }
 
     static TeethCheckService service(TeethClassifier c) {
-        return new TeethCheckService(new FaceCheckProperties(DataSize.ofMegabytes(8), null, T), c);
+        return service(c, T);
+    }
+
+    static TeethCheckService service(TeethClassifier c, FaceCheckProperties.Teeth t) {
+        return new TeethCheckService(new FaceCheckProperties(DataSize.ofMegabytes(8), null, t), c);
+    }
+
+    /** 부를 때마다 정해 둔 확률을 차례로 돌려주는 가짜 모델. */
+    static final class Sequence implements TeethClassifier {
+        final double[] ps;
+        int calls;
+
+        Sequence(double... ps) {
+            this.ps = ps;
+        }
+
+        @Override
+        public boolean ready() {
+            return true;
+        }
+
+        @Override
+        public int inputSize() {
+            return 320;
+        }
+
+        @Override
+        public double foodProbability(float[] chw) {
+            return ps[Math.min(calls++, ps.length - 1)];
+        }
     }
 
     static String jpeg(Color c) {
@@ -76,7 +108,7 @@ public class TeethCheckServiceTest {
     static final String PHOTO = jpeg(new Color(200, 120, 120));
 
     @Test
-    @DisplayName("확률 0.7 이상 → 낀 것 있음, 0.3 이하 → 없음, 그 사이 → null(애매함)")
+    @DisplayName("확률 0.4 이상 → 낀 것 있음, 0.15 이하 → 없음, 그 사이 → null(애매함)")
     void thresholds() {
         var yes = service(new Fixed(0.82, true)).check(PHOTO, OPEN);
         assertThat(yes.framing()).isNull();
@@ -88,9 +120,29 @@ public class TeethCheckServiceTest {
         assertThat(no.teeth().foreignObject()).isFalse();
         assertThat(no.teeth().note()).contains("없어 보여요");
 
-        var unsure = service(new Fixed(0.5, true)).check(PHOTO, OPEN);
+        var low = service(new Fixed(0.45, true)).check(PHOTO, OPEN);
+        assertThat(low.teeth().foreignObject()).isTrue();
+
+        var unsure = service(new Fixed(0.25, true)).check(PHOTO, OPEN);
         assertThat(unsure.teeth().foreignObject()).isNull();
         assertThat(unsure.teeth().note()).contains("확실하지 않아요");
+    }
+
+    @Test
+    @DisplayName("여러 방식으로 보면 4번 부르고 가장 높은 확률을 씀(한 방식에서만 보여도 잡음)")
+    void multiView() {
+        var c = new Sequence(0.05, 0.08, 0.62, 0.1);
+        var r = service(c, MULTI).check(PHOTO, OPEN);
+        assertThat(c.calls).isEqualTo(4);
+        assertThat(r.teeth().foreignObject()).isTrue();
+        assertThat(r.teeth().confidence()).isEqualTo(0.62);
+
+        var clean = new Sequence(0.05, 0.08, 0.1, 0.12);
+        assertThat(service(clean, MULTI).check(PHOTO, OPEN).teeth().foreignObject()).isFalse();
+
+        var once = new Sequence(0.05, 0.9);
+        service(once).check(PHOTO, OPEN);
+        assertThat(once.calls).isEqualTo(1);
     }
 
     @Test

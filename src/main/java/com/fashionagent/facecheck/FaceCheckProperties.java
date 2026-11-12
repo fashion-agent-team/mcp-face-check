@@ -14,16 +14,19 @@ public record FaceCheckProperties(
         @DefaultValue Symmetry symmetry,
         @DefaultValue Teeth teeth) {
 
-    /** teeth_check. 확률 기준은 첫 값이고 실제 사진으로 평가한 뒤 맞춥니다. */
+    /**
+     * teeth_check. 확률 기준은 실제 사진으로 평가한 뒤 맞춥니다. 2026-11-12 고춧가루를 놓쳐서(진행 님 확인)
+     * "놓치지 않기" 쪽으로 낮춤: 없는데 있다고 하면 혀로 한 번 확인하면 되지만, 낀 걸 놓치면 곤란하기 때문입니다.
+     */
     public record Teeth(
             /** ONNX 모델 위치 (Spring Resource 경로). */
             @DefaultValue("classpath:models/teeth_mobilenetv3.onnx") String model,
             /** 모델 입력 크기(정사각형 한 변). 모델 .json의 size. */
             @DefaultValue("320") int inputSize,
             /** 이 확률 이상이면 "낀 것 있음". */
-            @DefaultValue("0.7") double yesThreshold,
+            @DefaultValue("0.4") double yesThreshold,
             /** 이 확률 이하면 "없음". 그 사이는 애매함(null). */
-            @DefaultValue("0.3") double noThreshold,
+            @DefaultValue("0.15") double noThreshold,
             /** 입 안쪽 높이 ÷ 입 너비가 이보다 작으면 "입을 더 벌려 주세요" (학습 데이터가 0.10 이상). */
             @DefaultValue("0.10") double minOpenRatio,
             /** 입 너비가 사진 너비의 이 비율보다 작으면 "더 가까이". */
@@ -31,7 +34,12 @@ public record FaceCheckProperties(
             /** 입 박스가 사진 밖으로 이 비율(박스 크기 대비) 넘게 나가면 잘린 것으로 봄. */
             @DefaultValue("0.1") double maxOutside,
             /** 입 크롭 평균 밝기(L*)가 이보다 낮으면 lighting=dark. */
-            @DefaultValue("25") double darkLightness) {
+            @DefaultValue("25") double darkLightness,
+            /**
+             * 한 사진을 여러 방식으로 봄(그대로, 좌우 뒤집기, 조금 넓게, 조금 좁게)하고 가장 높은 확률을 씁니다.
+             * 작은 조각이 한 방식에서만 보여도 놓치지 않게 하려는 것입니다. false면 그대로 한 번만 봅니다.
+             */
+            @DefaultValue("true") boolean multiView) {
     }
 
     public record Symmetry(

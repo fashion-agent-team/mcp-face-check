@@ -9,7 +9,7 @@ import org.springframework.stereotype.Service;
 
 /**
  * teeth_check: 입 근접 사진 → 이 사이에 낀 것. 우리가 학습한 모델(ONNX)을 이 서버에서 돌리고, 사진은 외부 AI로
- * 보내지 않습니다(개인정보, 2026-11-06 결정). 확률이 애매하면 지어내지 않고 foreignObject=null로 돌려줍니다.
+ * 보내지 않습니다(개인정보, 2026-11-06 결정). 한 사진을 여러 방식으로 보고 가장 높은 확률을 씁니다(놓치지 않기, 2026-11-12). 확률이 애매하면 지어내지 않고 foreignObject=null로 돌려줍니다.
  */
 @Service
 public class TeethCheckService {
@@ -39,7 +39,7 @@ public class TeethCheckService {
             return new TeethResult(null, "dark",
                     new TeethResult.Teeth(null, null, "어두워서 이가 잘 보이지 않아요. 밝은 곳에서 다시 해 주세요."));
         }
-        double p = classifier.foodProbability(MouthCrop.toTensor(crop, classifier.inputSize()));
+        double p = probability(img, box, crop, t.multiView());
         double conf = Math.round(p * 100) / 100.0;
         if (p >= t.yesThreshold()) {
             return new TeethResult(null, "ok", new TeethResult.Teeth(true, conf, "이 사이에 뭔가 낀 것 같아요."));
@@ -47,7 +47,27 @@ public class TeethCheckService {
         if (p <= t.noThreshold()) {
             return new TeethResult(null, "ok", new TeethResult.Teeth(false, conf, "이 사이에 낀 건 없어 보여요."));
         }
-        return new TeethResult(null, "ok", new TeethResult.Teeth(null, conf, "잘 보이지 않아서 확실하지 않아요."));
+        return new TeethResult(null, "ok", new TeethResult.Teeth(null, conf, "뭔가 낀 것 같기도 한데, 잘 보이지 않아서 확실하지 않아요."));
+    }
+
+    /** 여러 방식으로 볼 때 입 박스 긴 변에 곱하는 배율. 1.36은 학습 때와 같은 기본값. */
+    static final double[] MARGINS = {1.2, 1.5};
+
+    /**
+     * 음식이 낀 확률. multiView면 그대로·좌우 뒤집기·조금 좁게·조금 넓게 본 것 중 가장 높은 값입니다.
+     * 작은 조각(고춧가루, 깨)은 자르는 위치나 방향에 따라 모델이 보기도 하고 놓치기도 해서, 하나라도 보이면 잡습니다.
+     */
+    double probability(BufferedImage img, MouthBox box, BufferedImage crop, boolean multiView) {
+        int size = classifier.inputSize();
+        double p = classifier.foodProbability(MouthCrop.toTensor(crop, size));
+        if (!multiView) {
+            return p;
+        }
+        p = Math.max(p, classifier.foodProbability(MouthCrop.toTensor(MouthCrop.flip(crop), size)));
+        for (double m : MARGINS) {
+            p = Math.max(p, classifier.foodProbability(MouthCrop.toTensor(MouthCrop.crop(img, box, m), size)));
+        }
+        return p;
     }
 
     /** 입이 사진 밖으로 나갔거나, 너무 작거나, 덜 벌렸으면 다시 찍기 안내. mouthBox가 없으면 확인하지 못함. */

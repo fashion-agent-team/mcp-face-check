@@ -26,6 +26,11 @@ public final class MouthCrop {
 
     /** 사진에서 입 정사각형을 잘라 CROP_SIZE로 만든다. box가 없으면 사진 가운데(짧은 변의 80%)를 쓴다. */
     public static BufferedImage crop(BufferedImage img, MouthBox box) {
+        return crop(img, box, MARGIN);
+    }
+
+    /** {@link #crop(BufferedImage, MouthBox)}와 같지만 입 박스 긴 변에 곱하는 배율을 바꿉니다(여러 방식으로 보기). */
+    public static BufferedImage crop(BufferedImage img, MouthBox box, double margin) {
         int w = img.getWidth();
         int h = img.getHeight();
         double cx;
@@ -34,11 +39,11 @@ public final class MouthCrop {
         if (box != null) {
             cx = box.centerX() * w;
             cy = box.centerY() * h;
-            side = Math.max(box.w() * w, box.h() * h) * MARGIN;
+            side = Math.max(box.w() * w, box.h() * h) * margin;
         } else {
             cx = w / 2.0;
             cy = h / 2.0;
-            side = Math.min(w, h) * 0.8;
+            side = Math.min(w, h) * 0.8 * margin / MARGIN;
         }
         int s = Math.max(8, (int) Math.round(side));
         int left = (int) Math.round(cx - side / 2);
@@ -51,6 +56,19 @@ public final class MouthCrop {
             }
         }
         return resize(sq, CROP_SIZE);
+    }
+
+    /** 좌우를 뒤집은 사본. */
+    public static BufferedImage flip(BufferedImage src) {
+        int w = src.getWidth();
+        int h = src.getHeight();
+        BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                out.setRGB(w - 1 - x, y, src.getRGB(x, y));
+            }
+        }
+        return out;
     }
 
     /** 줄일 때는 넓이 평균(area), 키울 때는 bilinear. */
