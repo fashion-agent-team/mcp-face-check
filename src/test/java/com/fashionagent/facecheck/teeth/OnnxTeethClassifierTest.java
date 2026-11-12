@@ -35,7 +35,7 @@ class OnnxTeethClassifierTest {
     void realModel() throws Exception {
         var res = new ClassPathResource("models/teeth_mobilenetv3.onnx");
         org.junit.jupiter.api.Assumptions.assumeTrue(res.exists(), "모델 파일 없음");
-        try (var c = new OnnxTeethClassifier(res, 320)) {
+        try (var c = new OnnxTeethClassifier(res, 384)) {
             assertThat(c.ready()).isTrue();
             var img = new java.awt.image.BufferedImage(640, 480, java.awt.image.BufferedImage.TYPE_INT_RGB);
             var g = img.createGraphics();
@@ -44,7 +44,7 @@ class OnnxTeethClassifierTest {
             g.setColor(new java.awt.Color(235, 230, 215));
             g.fillRect(220, 220, 200, 40);
             g.dispose();
-            double p = c.foodProbability(MouthCrop.toTensor(MouthCrop.crop(img, new MouthBox(220 / 640.0, 220 / 480.0, 200 / 640.0, 40 / 480.0)), 320));
+            double p = c.foodProbability(MouthCrop.toTensor(MouthCrop.crop(img, new MouthBox(220 / 640.0, 220 / 480.0, 200 / 640.0, 40 / 480.0)), 384));
             assertThat(p).isBetween(0.0, 1.0);
         }
     }

@@ -1,6 +1,6 @@
 {
   "arch": "mobilenet_v3_small",
-  "size": 320,
+  "size": 384,
   "mean": [
     0.485,
     0.456,
@@ -19,7 +19,7 @@
     "crop_margin": 0.18,
     "reframe_margin": null,
     "faces": 1310,
-    "variants": 2,
+    "variants": 4,
     "val_share": 0.2
   }
 }

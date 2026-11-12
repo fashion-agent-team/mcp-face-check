@@ -1,0 +1,10 @@
+# FFHQ 얼굴에서 나온 사진·데이터는 레포에 올리지 않습니다(CC BY-NC-SA 4.0, 재배포 금지).
+mouths*/
+dataset*/
+real_food*/
+runs/
+ffhq-subset/
+face_landmarker.task
+*.jsonl
+*.png
+*.jpg

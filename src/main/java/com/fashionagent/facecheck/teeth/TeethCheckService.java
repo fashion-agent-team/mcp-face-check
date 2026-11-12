@@ -5,6 +5,8 @@ import com.fashionagent.facecheck.FaceCheckProperties;
 import com.fashionagent.facecheck.image.Images;
 import java.awt.image.BufferedImage;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
@@ -13,6 +15,8 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class TeethCheckService {
+
+    private static final Logger log = LoggerFactory.getLogger(TeethCheckService.class);
 
     private final FaceCheckProperties props;
     private final TeethClassifier classifier;
@@ -39,8 +43,11 @@ public class TeethCheckService {
             return new TeethResult(null, "dark",
                     new TeethResult.Teeth(null, null, "어두워서 이가 잘 보이지 않아요. 밝은 곳에서 다시 해 주세요."));
         }
-        double p = classifier.foodProbability(MouthCrop.toTensor(crop, classifier.inputSize()));
+        double p = probability(img, box, crop);
         double conf = Math.round(p * 100) / 100.0;
+        // 사진은 남기지 않고 숫자만: 놓쳤다는 말이 오면 확률·입 박스 유무로 원인을 가립니다.
+        log.info("teeth_check p={} mouthBox={} photo={}x{}", conf, box == null ? "none" : String.format(
+                "%.2f,%.2f,%.2f,%.2f", box.x(), box.y(), box.w(), box.h()), img.getWidth(), img.getHeight());
         if (p >= t.yesThreshold()) {
             return new TeethResult(null, "ok", new TeethResult.Teeth(true, conf, "이 사이에 뭔가 낀 것 같아요."));
         }
@@ -75,6 +82,23 @@ public class TeethCheckService {
             return "이가 잘 안 보여요. 입을 조금 더 벌리고 '이~' 해 주세요.";
         }
         return null;
+    }
+
+    /**
+     * 입을 여백 3가지(1.25·1.36·1.5배) × 원래·좌우 뒤집기, 6번 본 확률의 평균. 한 번만 보면 입 박스가 조금만 달라도 같은 사진이
+     * 0.2와 0.97로 갈렸습니다(2026-11-12 고춧가루 사진). 평균을 내면 깨끗한 이를 잘못 알리는 일도 줄어듭니다.
+     */
+    private double probability(BufferedImage img, MouthBox box, BufferedImage base) {
+        int size = classifier.inputSize();
+        double sum = 0;
+        int n = 0;
+        for (double margin : MouthCrop.TTA_MARGINS) {
+            BufferedImage c = margin == MouthCrop.MARGIN ? base : MouthCrop.crop(img, box, margin);
+            sum += classifier.foodProbability(MouthCrop.toTensor(c, size));
+            sum += classifier.foodProbability(MouthCrop.toTensor(MouthCrop.mirror(c), size));
+            n += 2;
+        }
+        return sum / n;
     }
 
     static double meanLightness(BufferedImage img) {
