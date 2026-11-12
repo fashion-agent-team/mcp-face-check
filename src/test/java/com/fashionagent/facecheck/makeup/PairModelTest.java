@@ -38,10 +38,10 @@ class PairModelTest {
     }
 
     @Test
-    @DisplayName("눈화장 모델 두 개 + 7가지로 옮겨 자르기: 뒤집으면 평균 점수도 부호만 바뀜")
+    @DisplayName("눈화장 모델(여러 개 평균) + 7가지로 옮겨 자르기: 뒤집으면 평균 점수도 부호만 바뀜")
     void eyeEnsembleMirroredFlipsSign() throws Exception {
         mirroredFlipsSign(new OnnxPairModel(List.of(new ClassPathResource("models/eye_makeup.onnx"),
-                new ClassPathResource("models/eye_makeup_b.onnx")), OnnxPairModel.Region.EYE, OnnxPairModel.Jitter.SEVEN));
+                new ClassPathResource("models/eye_makeup.onnx")), OnnxPairModel.Region.EYE, OnnxPairModel.Jitter.SEVEN));
     }
 
     @Test

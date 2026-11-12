@@ -25,7 +25,7 @@ class FaceParsingConfig {
             @Value("${face.brow-thickness.model:classpath:models/brow_thickness.onnx}") String browThickness,
             @Value("${face.lip-width.model:classpath:models/lip_width.onnx}") String lipWidth,
             @Value("${face.cheek-color.model:classpath:models/cheek_color.onnx}") String cheekColor,
-            @Value("${face.eye-makeup.model:classpath:models/eye_makeup.onnx,classpath:models/eye_makeup_b.onnx}") String eyeMakeup,
+            @Value("${face.eye-makeup.model:classpath:models/eye_makeup.onnx}") String eyeMakeup,
             @Value("${face.eye-makeup.tta:true}") boolean eyeTta) {
         return new PairModels(
                 new OnnxPairModel(browLength.isBlank() ? null : loader.getResource(browLength), OnnxPairModel.Region.BROW),
