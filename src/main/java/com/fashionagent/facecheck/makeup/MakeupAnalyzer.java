@@ -62,6 +62,7 @@ final class MakeupAnalyzer {
         boolean lengthSkipped = brows(s, frame, img, labels, mirrored, thickModel, checks);
         lips(s, frame, img, labels, checks);
         List<String> skipped = new ArrayList<>(colors(s, frame, img, checks));
+        skipped.addAll(eyes(s, frame, img, checks));
         if (lengthSkipped) {
             skipped.add("browLength");
         }
@@ -98,6 +99,7 @@ final class MakeupAnalyzer {
             case "lowerLipLine" -> "아랫입술 선이 " + a + "이 더 도톰하게 그려졌어요.";
             case "cheekColor" -> a + " 볼이 " + b + "보다 더 붉어요. 블러셔가 한쪽에 더 발린 것 같아요.";
             case "lipColor" -> "입술 색이 " + a + "이 " + b + "보다 연해요.";
+            case "eyeMakeup" -> a + " 눈화장이 " + b + "보다 진해요. 아이섀도나 아이라인이 한쪽에 더 발린 것 같아요.";
             default -> a + "과 " + b + "이 조금 달라 보여요.";
         };
     }
@@ -426,6 +428,79 @@ final class MakeupAnalyzer {
         boolean leftPaler = Math.hypot(ll.a() - sl.a(), ll.b() - sl.b()) < Math.hypot(lr.a() - sr.a(), lr.b() - sr.b());
         check("lipColor", leftPaler ? de : -de, t.lipColor(), COLOR, checks);
         return List.of();
+    }
+
+    // ---------- 눈화장 ----------
+
+    /**
+     * 눈꺼풀(눈 윗선에서 눈썹 아랫선 쪽으로 45%)이 같은 쪽 눈 밑 피부보다 얼마나 어두운지(L*)를 좌우로 비교합니다.
+     * 아이섀도·아이라인을 한쪽에 더 바르면 그쪽 눈꺼풀이 어두워집니다. 같은 쪽 피부와 견주므로 한쪽에서 빛이 들어와도
+     * 어느 정도 지워지고, 눈 밑 피부 밝기가 좌우로 [unevenLight]보다 다르면 건너뜁니다.
+     * 2026-11-12 지원님 반반 화장 사진에서 눈화장 차이를 못 잡아서 추가. 기준은 FFHQ 실사진 95번째 백분위.
+     */
+    private List<String> eyes(Sides s, FaceFrame f, BufferedImage img, List<Check> checks) {
+        LabMean[] lid = {new LabMean(), new LabMean()};
+        LabMean[] skin = {new LabMean(), new LabMean()};
+        List<List<Pt>> eyes = List.of(s.leftEye, s.rightEye);
+        List<List<Pt>> brows = List.of(s.leftBrowBottom, s.rightBrowBottom);
+        for (int i = 0; i < 2; i++) {
+            List<Pt> eye = f.local(eyes.get(i));
+            List<Pt> brow = f.local(brows.get(i));
+            if (eye.size() < 6 || brow.size() < 2) {
+                return List.of("eyeMakeup");
+            }
+            double cy = meanY(eye);
+            List<Pt> upper = eye.stream().filter(p -> p.y() <= cy).sorted(Comparator.comparingDouble(Pt::x)).toList();
+            List<Pt> lower = eye.stream().filter(p -> p.y() > cy).sorted(Comparator.comparingDouble(Pt::x)).toList();
+            if (upper.size() < 3 || lower.size() < 3) {
+                return List.of("eyeMakeup");
+            }
+            List<double[]> bx = brow.stream().sorted(Comparator.comparingDouble(Pt::x))
+                    .map(p -> new double[] {p.x(), p.y()}).toList();
+            List<Pt> lidTop = upper.stream().map(p -> new Pt(p.x(), p.y() + (interpolate(bx, p.x()) - p.y()) * 0.45)).toList();
+            samplePoly(img, f, concatReversed(upper, lidTop), lid[i], 5, 97);
+            List<Pt> skinTop = lower.stream().map(p -> new Pt(p.x(), p.y() + 0.22)).toList();
+            List<Pt> skinBottom = lower.stream().map(p -> new Pt(p.x(), p.y() + 0.40)).toList();
+            samplePoly(img, f, concatReversed(skinTop, skinBottom), skin[i], 15, 97);
+        }
+        for (int i = 0; i < 2; i++) {
+            if (lid[i].count() < 15 || skin[i].count() < 15) {
+                return List.of("eyeMakeup");
+            }
+        }
+        if (Math.abs(skin[0].l() - skin[1].l()) > t.unevenLight()) {
+            return List.of("eyeMakeup");
+        }
+        // + 이면 왼쪽 눈꺼풀이 더 어두움(더 진하게 바름)
+        double diff = (skin[0].l() - lid[0].l()) - (skin[1].l() - lid[1].l());
+        check("eyeMakeup", diff, t.eyeMakeup(), COLOR, checks);
+        return List.of();
+    }
+
+    /** a(왼→오) + b를 거꾸로(오→왼) 이은 닫힌 다각형. */
+    private static List<Pt> concatReversed(List<Pt> a, List<Pt> b) {
+        List<Pt> out = new ArrayList<>(a);
+        List<Pt> rev = new ArrayList<>(b);
+        java.util.Collections.reverse(rev);
+        out.addAll(rev);
+        return out;
+    }
+
+    /** 얼굴 좌표 다각형 안의 픽셀을 담습니다. */
+    private static void samplePoly(BufferedImage img, FaceFrame f, List<Pt> polyLocal, LabMean out, double minL, double maxL) {
+        List<Pt> px = polyLocal.stream().map(f::pixel).toList();
+        int x0 = clamp(min(px, Pt::x), img.getWidth());
+        int x1 = clamp(max(px, Pt::x), img.getWidth());
+        int y0 = clamp(min(px, Pt::y), img.getHeight());
+        int y1 = clamp(max(px, Pt::y), img.getHeight());
+        int step = Math.max(1, (int) (f.iod / 80));
+        for (int y = y0; y <= y1; y += step) {
+            for (int x = x0; x <= x1; x += step) {
+                if (inside(polyLocal, f.local(new Pt(x + 0.5, y + 0.5)))) {
+                    addIf(out, Images.lab(img.getRGB(x, y)), minL, maxL);
+                }
+            }
+        }
     }
 
     private static void sampleDisc(BufferedImage img, FaceFrame f, Pt centerLocal, double radius, LabMean out) {

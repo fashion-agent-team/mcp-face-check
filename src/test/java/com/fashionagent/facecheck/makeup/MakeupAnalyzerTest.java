@@ -22,7 +22,7 @@ import tools.jackson.databind.json.JsonMapper;
 class MakeupAnalyzerTest {
 
     static final FaceCheckProperties.Symmetry T = new FaceCheckProperties.Symmetry(
-            0.07, 0.09, 0.15, 0.046, 0.053, 0.25, 0.009, 0.05, 0.12, 0.014, 0.25, 6, 0.081, 10, 15, 28, 12, 25, 0.15, 3);
+            0.07, 0.09, 0.15, 0.046, 0.053, 0.25, 0.009, 0.05, 0.12, 0.014, 0.25, 6, 0.081, 10, 13, 15, 28, 12, 25, 0.15, 3);
     static final JsonMapper JSON = JsonMapper.builder().build();
 
     final MakeupAnalyzer analyzer = new MakeupAnalyzer(T);
@@ -47,7 +47,7 @@ class MakeupAnalyzerTest {
         assertThat(r.symmetry().skipped()).isEmpty();
         assertThat(r.symmetry().checks()).extracting(Check::name).containsExactly(
                 "browHeight", "browTail", "browLength", "browThickness", "lipCorner", "lipHalfWidth",
-                "upperLipLine", "lowerLipLine", "cheekColor", "lipColor");
+                "upperLipLine", "lowerLipLine", "cheekColor", "lipColor", "eyeMakeup");
     }
 
     @Test
@@ -232,6 +232,18 @@ class MakeupAnalyzerTest {
     }
 
     @Test
+    @DisplayName("한쪽 눈꺼풀에만 아이섀도를 바르면 그쪽 눈화장이 진하다고 알림")
+    void eyeShadowOneSide() {
+        var f = new SyntheticFace();
+        f.shadowLeft = new Color(120, 80, 90);
+        MakeupResult r = run(f);
+        var eye = r.symmetry().checks().stream().filter(c -> c.name().equals("eyeMakeup")).findFirst().orElseThrow();
+        assertThat(eye.ok()).isFalse();
+        assertThat(eye.side()).isEqualTo("left");
+        assertThat(r.symmetry().notes()).anyMatch(n -> n.contains("왼쪽 눈화장이"));
+    }
+
+    @Test
     @DisplayName("한쪽이 그늘지면 색 비교는 건너뛰고(skipped) 모양만 봄")
     void unevenLight() {
         var f = new SyntheticFace();
@@ -239,7 +251,7 @@ class MakeupAnalyzerTest {
         f.lipRight = new Color(214, 140, 140);
         MakeupResult r = run(f);
         assertThat(r.lighting()).isEqualTo("ok");
-        assertThat(r.symmetry().skipped()).containsExactly("cheekColor", "lipColor");
+        assertThat(r.symmetry().skipped()).containsExactly("cheekColor", "lipColor", "eyeMakeup");
         assertThat(r.symmetry().ok()).isTrue();
     }
 
