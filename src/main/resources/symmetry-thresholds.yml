@@ -1,17 +1,20 @@
 # training/public_baseline.py: 공개 데이터셋 CelebA의 화장한 얼굴 사진 2832장에서 잰 값의 95번째 백분위(100장 중 95장이 이 값 아래).
+# 2026-11-12: 고화질 실사진(FFHQ 1024px, 정면 590장)에서는 이 기준으로 손대지 않은 사진도 항목마다 7~18%를 잘못 알려서
+# (실사진 결이 살아 있고 타고난 좌우 차이가 큼) 학습 모델·색·높이 항목을 실사진 95번째 백분위로 올림. 모델이 없을 때 쓰는 값(brow-length, brow-thickness,
+# lip-half-width, cheek-redness)은 그대로. 근거: training/public-baseline.md "고화질 실사진".
 # 팀 셀카에 라벨을 붙여 train.py로 다시 학습하면 그 값으로 바꾸세요.
 face:
   symmetry:
-    brow-height: 0.041
+    brow-height: 0.054
     brow-length: 0.213
-    brow-length-model: 0.045
-    brow-tail: 0.063
+    brow-length-model: 0.062
+    brow-tail: 0.089
     brow-thickness: 0.141
-    brow-thickness-model: 0.010
+    brow-thickness-model: 0.017
     cheek-redness: 5.417
-    cheek-color-model: 0.080
-    lip-color: 7.134
-    lip-corner: 0.084
+    cheek-color-model: 0.095
+    lip-color: 8.884
+    lip-corner: 0.093
     lip-half-width: 0.103
-    lip-half-width-model: 0.015
-    lip-line: 0.163
+    lip-half-width-model: 0.028
+    lip-line: 0.224
