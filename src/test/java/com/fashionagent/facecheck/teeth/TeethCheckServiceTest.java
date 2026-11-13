@@ -29,6 +29,7 @@ public class TeethCheckServiceTest {
         final double p;
         final boolean ready;
         int lastLength;
+        int calls;
 
         Fixed(double p, boolean ready) {
             this.p = p;
@@ -48,6 +49,7 @@ public class TeethCheckServiceTest {
         @Override
         public double foodProbability(float[] chw) {
             lastLength = chw.length;
+            calls++;
             return p;
         }
     }
@@ -94,11 +96,13 @@ public class TeethCheckServiceTest {
     }
 
     @Test
-    @DisplayName("모델에는 3×320×320 텐서 하나가 들어감 (mouthBox 없으면 사진 가운데)")
+    @DisplayName("모델에는 3×320×320 텐서가 6번 들어감 (mouthBox 없으면 사진 가운데)")
     void tensorShape() {
         var c = new Fixed(0.1, true);
         service(c).check(PHOTO, null);
         assertThat(c.lastLength).isEqualTo(3 * 320 * 320);
+        // 여백 3가지 × 원래·좌우 뒤집기 = 6번 보고 평균
+        assertThat(c.calls).isEqualTo(6);
     }
 
     @Test

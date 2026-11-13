@@ -80,19 +80,25 @@ ML Kit Face Detection의 **윤곽(contour) 모드** 결과를 상수 이름 came
 
 ## 치아 (teeth_check)
 
-우리가 학습한 분류 모델 `src/main/resources/models/teeth_mobilenetv3.onnx`(MobileNetV3-Small, 입력 320)를 ONNX Runtime Java로 이 서버 안에서 돌립니다.
+우리가 학습한 분류 모델 `src/main/resources/models/teeth_mobilenetv3.onnx`(MobileNetV3-Small v4, 입력 384)를 ONNX Runtime Java로 이 서버 안에서 돌립니다.
 모델 파일이 없으면 서버는 뜨고 `teeth_check`만 `not_ready`를 돌려줍니다. 위치는 `face.teeth.model`로 바꿀 수 있습니다.
 
 1. **구도**(`mouthBox`가 있을 때, 하나라도 걸리면 `framing`만 돌려주고 끝): 박스가 사진 밖으로 박스 크기의 10% 넘게 나감 → 그 방향 안내,
    입 너비 < 사진 너비 15% → 가까이, 입 안쪽 높이 ÷ 너비 < 0.10 → "입을 더 벌리고 '이~'" (학습 데이터가 0.10 이상이라 그보다 덜 벌린 사진은 판단하지 않음).
 2. **자르기**(학습과 같은 규칙, `teeth/MouthCrop`): `mouthBox`(ML Kit `UPPER_LIP_BOTTOM` + `LOWER_LIP_TOP` 점의 박스) 중심에서 긴 변 × 1.36 정사각형,
-   사진 밖은 거울 패딩 → 384 → 320. RGB, 0~1, ImageNet mean/std, NCHW float32. `mouthBox`가 없으면 사진 가운데(짧은 변의 80%)를 봅니다.
+   사진 밖은 거울 패딩 → 384(모델 입력도 384). RGB, 0~1, ImageNet mean/std, NCHW float32. `mouthBox`가 없으면 사진 가운데(짧은 변의 80%)를 봅니다.
 3. **밝기**: 크롭 평균 L* < 25 → `lighting: "dark"`, 판단하지 않음.
-4. **판단**: p = sigmoid(logit). p ≥ 0.7 → `foreignObject: true`, p ≤ 0.3 → `false`, 그 사이 → `null`(애매함, agent가 가족에게 물어볼지 제안).
+4. **여러 번 보기**: 여백 1.25·1.36·1.5배 × 원래·좌우 뒤집기, 6장을 모델에 넣고 확률을 평균합니다. 한 장만 보면 입 박스가 조금만 달라도
+   같은 사진이 0.2와 0.97로 갈렸습니다(2026-11-12 고춧가루 사진).
+5. **판단**: p = 6장 평균. p ≥ 0.7 → `foreignObject: true`, p ≤ 0.3 → `false`, 그 사이 → `null`(애매함, agent가 가족에게 물어볼지 제안).
    기준은 첫 값이고 실제 사진으로 평가한 뒤 `face.teeth.yes-threshold`, `no-threshold`로 맞춥니다.
+6. **로그**: 확률·`mouthBox`·사진 크기만 남깁니다(`teeth_check p=0.97 mouthBox=…`). 사진은 남기지 않습니다. 놓쳤다는 말이 오면 이 줄로 원인을 가립니다.
 
-모델 성능(합성 데이터 검증 1,048장): 정확도 87.2%, "낀 것 있음"이라고 했을 때 맞음 0.96, 실제로 낀 것을 찾음 0.78. 크고 어두운 조각(김, 채소)은 잘 찾고
-작은 조각(깨, 고춧가루) 하나만 낀 경우는 자주 놓칩니다. 실제 폰 사진 평가는 아직입니다.
+모델 성능(v4, 2026-11-12, 합성 시험 1,048장): 정확도 91.2%(v2 87.2%), 실제로 낀 것을 찾음 0.87(v2 0.78).
+고춧가루 0.86(v2 0.73), 깨 0.81, 밥알 0.82로 이와 색이 비슷한 작은 조각이 여전히 가장 약합니다. 김·채소는 0.97~0.99.
+깨끗한 실제 이 262명에서 "낀 것 있음"으로 잘못 알림 1.1~1.5%, "확실하지 않아요" 6.5%.
+앞니 사이 고춧가루 실사진은 v2가 0.03으로 놓쳤고 v4는 0.96~1.0으로 찾습니다. 실제로 음식이 낀 사진은 이 1장으로만 확인했습니다.
+v4에서 바꾼 것과 학습 방법: [training/teeth/README.md](../training/teeth/README.md).
 학습 데이터는 FFHQ 얼굴(NVIDIA, CC BY-NC-SA 4.0)에서 입을 잘라 음식 조각을 합성한 것이라 레포에 올리지 않습니다(모델 파일에는 사진이 들어 있지 않음).
 
 ## 코드 구성

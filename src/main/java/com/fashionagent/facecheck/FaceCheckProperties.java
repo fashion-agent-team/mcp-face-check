@@ -19,7 +19,7 @@ public record FaceCheckProperties(
             /** ONNX 모델 위치 (Spring Resource 경로). */
             @DefaultValue("classpath:models/teeth_mobilenetv3.onnx") String model,
             /** 모델 입력 크기(정사각형 한 변). 모델 .json의 size. */
-            @DefaultValue("320") int inputSize,
+            @DefaultValue("384") int inputSize,
             /** 이 확률 이상이면 "낀 것 있음". */
             @DefaultValue("0.7") double yesThreshold,
             /** 이 확률 이하면 "없음". 그 사이는 애매함(null). */

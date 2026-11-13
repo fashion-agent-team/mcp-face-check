@@ -10,7 +10,7 @@ import java.awt.image.BufferedImage;
  * <ol>
  *   <li>입 안쪽 박스 중심에서, 긴 변 × 1.36(각 변 18% 여백) 정사각형</li>
  *   <li>사진 밖은 거울(reflect) 패딩</li>
- *   <li>384×384로 줄이고, 다시 모델 크기(320)로 줄임</li>
+ *   <li>384×384로 줄임(모델 입력도 384라 더 줄이지 않음)</li>
  *   <li>RGB, 0~1, ImageNet mean/std 정규화, NCHW float32</li>
  * </ol>
  */
@@ -24,8 +24,16 @@ public final class MouthCrop {
     private MouthCrop() {
     }
 
+    /** 같은 입을 조금씩 다르게 본 여백 배율. 모델 확률이 입 박스 위치에 따라 흔들려서 평균을 냅니다. */
+    public static final double[] TTA_MARGINS = {1.25, MARGIN, 1.5};
+
     /** 사진에서 입 정사각형을 잘라 CROP_SIZE로 만든다. box가 없으면 사진 가운데(짧은 변의 80%)를 쓴다. */
     public static BufferedImage crop(BufferedImage img, MouthBox box) {
+        return crop(img, box, MARGIN);
+    }
+
+    /** {@link #crop(BufferedImage, MouthBox)}과 같고 여백 배율만 다르게(box가 없으면 가운데 크기를 같은 비율로). */
+    public static BufferedImage crop(BufferedImage img, MouthBox box, double margin) {
         int w = img.getWidth();
         int h = img.getHeight();
         double cx;
@@ -34,11 +42,11 @@ public final class MouthCrop {
         if (box != null) {
             cx = box.centerX() * w;
             cy = box.centerY() * h;
-            side = Math.max(box.w() * w, box.h() * h) * MARGIN;
+            side = Math.max(box.w() * w, box.h() * h) * margin;
         } else {
             cx = w / 2.0;
             cy = h / 2.0;
-            side = Math.min(w, h) * 0.8;
+            side = Math.min(w, h) * 0.8 * margin / MARGIN;
         }
         int s = Math.max(8, (int) Math.round(side));
         int left = (int) Math.round(cx - side / 2);
@@ -86,6 +94,19 @@ public final class MouthCrop {
                 out[i] = (((rgb >> 16) & 0xFF) / 255f - MEAN[0]) / STD[0];
                 out[plane + i] = (((rgb >> 8) & 0xFF) / 255f - MEAN[1]) / STD[1];
                 out[2 * plane + i] = ((rgb & 0xFF) / 255f - MEAN[2]) / STD[2];
+            }
+        }
+        return out;
+    }
+
+    /** 좌우로 뒤집은 사진. */
+    public static BufferedImage mirror(BufferedImage src) {
+        int w = src.getWidth();
+        int h = src.getHeight();
+        BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                out.setRGB(w - 1 - x, y, src.getRGB(x, y));
             }
         }
         return out;

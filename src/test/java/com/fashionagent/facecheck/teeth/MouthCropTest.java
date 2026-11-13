@@ -59,4 +59,35 @@ class MouthCropTest {
         var crop = MouthCrop.crop(img, new MouthBox(-0.2, 0.4, 0.5, 0.2));
         assertThat(crop.getRGB(0, 192) & 0xFF).isBetween(120, 136);
     }
+
+    @Test
+    @DisplayName("여백 배율을 키우면 같은 입이 더 작게 들어오고, 뒤집기는 좌우만 바꿈")
+    void marginAndMirror() {
+        BufferedImage img = new BufferedImage(640, 480, BufferedImage.TYPE_INT_RGB);
+        for (int y = 220; y < 260; y++) {
+            for (int x = 220; x < 420; x++) {
+                img.setRGB(x, y, 0xFFFFFF);
+            }
+        }
+        img.setRGB(10, 10, 0xFF0000);
+        MouthBox box = new MouthBox(220 / 640.0, 220 / 480.0, 200 / 640.0, 40 / 480.0);
+        int narrow = whiteWidth(MouthCrop.crop(img, box, 1.25));
+        int wide = whiteWidth(MouthCrop.crop(img, box, 1.5));
+        assertThat(narrow).isBetween(300, 314); // 384 / 1.25 ≈ 307
+        assertThat(wide).isBetween(250, 262); // 384 / 1.5 = 256
+
+        BufferedImage m = MouthCrop.mirror(img);
+        assertThat(m.getRGB(629, 10) & 0xFFFFFF).isEqualTo(0xFF0000);
+        assertThat(m.getRGB(10, 10) & 0xFFFFFF).isEqualTo(0);
+    }
+
+    private static int whiteWidth(BufferedImage crop) {
+        int white = 0;
+        for (int x = 0; x < crop.getWidth(); x++) {
+            if ((crop.getRGB(x, 192) & 0xFF) > 128) {
+                white++;
+            }
+        }
+        return white;
+    }
 }
