@@ -18,7 +18,7 @@
 - 사진은 판단에만 쓰고 저장하지 않습니다. 치아 검사는 확률 숫자만 로그에 남깁니다.
 - 치아 모델(`src/main/resources/models/teeth_mobilenetv3.onnx`)은 FFHQ 얼굴 데이터(NVIDIA, CC BY-NC-SA 4.0)에서 입을 잘라 음식 조각을 합성한 사진으로 학습했습니다. 그래서 **비상업용**이고, 쓸 때 출처를 밝힙니다. 모델 파일에는 사진이 들어 있지 않고, 학습 사진은 레포에 올리지 않습니다. 학습 스크립트는 [training/teeth/](training/teeth/README.md)에 있습니다.
 
-개발 방법, 대칭 규칙과 기준값은 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)를 보세요.
+개발 방법, 대칭 규칙과 기준값은 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md), 그동안 학습하고 바꿔 본 모델·방식 비교는 [docs/lab.md](docs/lab.md)를 보세요.
 
 ## 전체 구조
 
