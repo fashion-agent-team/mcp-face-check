@@ -22,7 +22,7 @@ import tools.jackson.databind.json.JsonMapper;
 class MakeupAnalyzerTest {
 
     static final FaceCheckProperties.Symmetry T = new FaceCheckProperties.Symmetry(
-            0.07, 0.09, 0.15, 0.046, 0.053, 0.25, 0.009, 0.05, 0.12, 0.014, 0.25, 6, 0.081, 10, 15, 0.1, 15, 28, 12, 25, 0.15, 3);
+            0.07, 0.09, 0.15, 0.046, 0.053, 0.25, 0.009, 0.05, 0.12, 0.014, 0.25, 6, 0.081, 10, 15, 0.1, 0.02, 15, 28, 12, 25, 0.15, 3);
     static final JsonMapper JSON = JsonMapper.builder().build();
 
     final MakeupAnalyzer analyzer = new MakeupAnalyzer(T);
@@ -254,6 +254,49 @@ class MakeupAnalyzerTest {
         assertThat(eye.ok()).isFalse();
         assertThat(eye.side()).isEqualTo("right");
         assertThat(eye.limit()).isEqualTo(0.1);
+    }
+
+    /** 얼굴 좌표 격자 전체가 피부이고, 왼쪽 눈 둘레 네모만 c인 분할 결과를 돌려주는 가짜 분할 모델 */
+    static FaceParser parserWithEyeBox(int c) {
+        return new FaceParser() {
+            @Override
+            public boolean ready() {
+                return true;
+            }
+
+            @Override
+            public FaceLabels parse(BufferedImage img, FaceFrame f) {
+                int n = 210;
+                byte[] b = new byte[n * n];
+                java.util.Arrays.fill(b, (byte) 1);
+                FaceLabels lab = new FaceLabels(b, n, -2.1, -1.5, 4.2);
+                for (int j = 0; j < n; j++) {
+                    for (int i = 0; i < n; i++) {
+                        if (lab.x(i) > -0.9 && lab.x(i) < -0.1 && lab.y(j) > -0.25 && lab.y(j) < 0.2) {
+                            b[j * n + i] = (byte) c;
+                        }
+                    }
+                }
+                return lab;
+            }
+        };
+    }
+
+    @Test
+    @DisplayName("눈 둘레에 안경이 있으면 눈화장은 재지 않고 skipped에 eyeMakeup, 안경이 없으면 잼")
+    void glassesSkipEyeMakeup() {
+        var models = new PairModels(null, null, null, null, (img, fr) -> -0.5);
+        var face = new SyntheticFace();
+        FaceLandmarks lm = JSON.convertValue(face.landmarks(), FaceLandmarks.class);
+
+        MakeupResult withGlasses = new MakeupAnalyzer(T, parserWithEyeBox(FaceLabels.GLASSES), models).analyze(lm, face.image());
+        assertThat(withGlasses.symmetry().skipped()).contains("eyeMakeup");
+        assertThat(withGlasses.symmetry().checks()).extracting(Check::name).doesNotContain("eyeMakeup");
+        assertThat(withGlasses.symmetry().notes()).noneMatch(n -> n.contains("눈화장"));
+
+        MakeupResult bare = new MakeupAnalyzer(T, parserWithEyeBox(1), models).analyze(lm, face.image());
+        assertThat(bare.symmetry().skipped()).doesNotContain("eyeMakeup");
+        assertThat(bare.symmetry().checks()).extracting(Check::name).contains("eyeMakeup");
     }
 
     @Test

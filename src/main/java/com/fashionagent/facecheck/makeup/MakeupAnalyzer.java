@@ -62,7 +62,7 @@ final class MakeupAnalyzer {
         boolean lengthSkipped = brows(s, frame, img, labels, mirrored, thickModel, checks);
         lips(s, frame, img, labels, checks);
         List<String> skipped = new ArrayList<>(colors(s, frame, img, checks));
-        skipped.addAll(eyes(s, frame, img, checks));
+        skipped.addAll(eyes(s, frame, img, labels, checks));
         if (lengthSkipped) {
             skipped.add("browLength");
         }
@@ -433,12 +433,28 @@ final class MakeupAnalyzer {
     // ---------- 눈화장 ----------
 
     /**
+     * 눈화장 모델이 보는 조각(눈 둘레, {@link OnnxPairModel.Region#EYE}와 같은 범위)에서 안경이 차지하는 비율(좌우 중 큰 쪽).
+     * 안경·선글라스는 테와 반사가 좌우로 달라서 화장 차이로 잘못 읽힙니다. FFHQ 실사진 346장 중 23%가 안경이었고,
+     * 빼면 같은 모델의 검출이 61% → 66%(2026-11-13). 분할 결과가 없으면 0.
+     */
+    static double eyeGlasses(FaceLabels labels) {
+        if (labels == null) {
+            return 0;
+        }
+        return Math.max(labels.fraction(FaceLabels.GLASSES, -1.05, -0.05, -0.55, 0.3),
+                labels.fraction(FaceLabels.GLASSES, 0.05, 1.05, -0.55, 0.3));
+    }
+
+    /**
      * 눈꺼풀(눈 윗선에서 눈썹 아랫선 쪽으로 45%)이 같은 쪽 눈 밑 피부보다 얼마나 어두운지(L*)를 좌우로 비교합니다.
      * 아이섀도·아이라인을 한쪽에 더 바르면 그쪽 눈꺼풀이 어두워집니다. 같은 쪽 피부와 견주므로 한쪽에서 빛이 들어와도
      * 어느 정도 지워지고, 눈 밑 피부 밝기가 좌우로 [unevenLight]보다 다르면 건너뜁니다.
      * 2026-11-12 지원님 반반 화장 사진에서 눈화장 차이를 못 잡아서 추가. 기준은 FFHQ 실사진 95번째 백분위.
      */
-    private List<String> eyes(Sides s, FaceFrame f, BufferedImage img, List<Check> checks) {
+    private List<String> eyes(Sides s, FaceFrame f, BufferedImage img, FaceLabels labels, List<Check> checks) {
+        if (eyeGlasses(labels) > t.eyeGlasses()) {
+            return List.of("eyeMakeup");
+        }
         LabMean[] lid = {new LabMean(), new LabMean()};
         LabMean[] skin = {new LabMean(), new LabMean()};
         List<List<Pt>> eyes = List.of(s.leftEye, s.rightEye);
