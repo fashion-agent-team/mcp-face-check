@@ -471,6 +471,12 @@ final class MakeupAnalyzer {
         if (Math.abs(skin[0].l() - skin[1].l()) > t.unevenLight()) {
             return List.of("eyeMakeup");
         }
+        // 눈화장 모델이 있으면 그 점수로(사진 왼쪽 눈에 더 발랐으면 +). 눈꺼풀 밝기만 보면 옅은 섀도·아이라인을 거의 놓쳤음
+        Double eyeModel = models.eyeMakeup().score(img, f);
+        if (eyeModel != null) {
+            check("eyeMakeup", eyeModel, t.eyeMakeupModel(), COLOR, checks);
+            return List.of();
+        }
         // + 이면 왼쪽 눈꺼풀이 더 어두움(더 진하게 바름)
         double diff = (skin[0].l() - lid[0].l()) - (skin[1].l() - lid[1].l());
         check("eyeMakeup", diff, t.eyeMakeup(), COLOR, checks);

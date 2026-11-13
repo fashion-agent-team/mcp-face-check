@@ -22,7 +22,7 @@ import tools.jackson.databind.json.JsonMapper;
 class MakeupAnalyzerTest {
 
     static final FaceCheckProperties.Symmetry T = new FaceCheckProperties.Symmetry(
-            0.07, 0.09, 0.15, 0.046, 0.053, 0.25, 0.009, 0.05, 0.12, 0.014, 0.25, 6, 0.081, 10, 15, 15, 28, 12, 25, 0.15, 3);
+            0.07, 0.09, 0.15, 0.046, 0.053, 0.25, 0.009, 0.05, 0.12, 0.014, 0.25, 6, 0.081, 10, 15, 0.1, 15, 28, 12, 25, 0.15, 3);
     static final JsonMapper JSON = JsonMapper.builder().build();
 
     final MakeupAnalyzer analyzer = new MakeupAnalyzer(T);
@@ -53,7 +53,7 @@ class MakeupAnalyzerTest {
     @Test
     @DisplayName("길이 모델이 있어도 눈썹 조각이 흐리면 길이는 재지 않고 skipped에 browLength")
     void blurrySkipsBrowLength() {
-        var models = new PairModels((img, f) -> -0.3, null, null, null);
+        var models = new PairModels((img, f) -> -0.3, null, null, null, null);
         var a = new MakeupAnalyzer(T, FaceParser.NONE, models);
         var face = new SyntheticFace();
         FaceLandmarks lm = JSON.convertValue(face.landmarks(), FaceLandmarks.class);
@@ -241,6 +241,19 @@ class MakeupAnalyzerTest {
         assertThat(eye.ok()).isFalse();
         assertThat(eye.side()).isEqualTo("left");
         assertThat(r.symmetry().notes()).anyMatch(n -> n.contains("왼쪽 눈화장이"));
+    }
+
+    @Test
+    @DisplayName("눈화장 모델이 있으면 그 점수로 판단(음수면 오른쪽이 진함)")
+    void eyeMakeupModel() {
+        var models = new PairModels(null, null, null, null, (img, fr) -> -0.5);
+        var a = new MakeupAnalyzer(T, FaceParser.NONE, models);
+        var face = new SyntheticFace();
+        MakeupResult r = a.analyze(JSON.convertValue(face.landmarks(), FaceLandmarks.class), face.image());
+        var eye = r.symmetry().checks().stream().filter(c -> c.name().equals("eyeMakeup")).findFirst().orElseThrow();
+        assertThat(eye.ok()).isFalse();
+        assertThat(eye.side()).isEqualTo("right");
+        assertThat(eye.limit()).isEqualTo(0.1);
     }
 
     @Test
