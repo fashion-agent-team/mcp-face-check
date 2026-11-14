@@ -11,6 +11,27 @@ record FaceLabels(byte[] labels, int size, double x0, double y0, double span) {
     static final int U_LIP = 12;
     static final int L_LIP = 13;
     static final int HAIR = 17;
+    static final int GLASSES = 6;
+
+    /** 얼굴 좌표 네모 [xa, xb] x [ya, yb] 안에서 분류 c인 칸의 비율. 네모가 격자 밖이면 0 */
+    double fraction(int c, double xa, double xb, double ya, double yb) {
+        int i0 = Math.max(0, (int) Math.floor((xa - x0) / cell()));
+        int i1 = Math.min(size, (int) Math.ceil((xb - x0) / cell()));
+        int j0 = Math.max(0, (int) Math.floor((ya - y0) / cell()));
+        int j1 = Math.min(size, (int) Math.ceil((yb - y0) / cell()));
+        if (i1 <= i0 || j1 <= j0) {
+            return 0;
+        }
+        int n = 0;
+        for (int j = j0; j < j1; j++) {
+            for (int i = i0; i < i1; i++) {
+                if (at(i, j) == c) {
+                    n++;
+                }
+            }
+        }
+        return (double) n / ((i1 - i0) * (j1 - j0));
+    }
 
     /** 격자 한 칸의 한 변(얼굴 좌표, IOD 단위) */
     double cell() {

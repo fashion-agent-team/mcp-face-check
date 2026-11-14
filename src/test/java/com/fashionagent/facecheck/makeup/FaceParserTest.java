@@ -1,6 +1,7 @@
 package com.fashionagent.facecheck.makeup;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 
 import com.fashionagent.facecheck.SyntheticFace;
 import java.awt.image.BufferedImage;
@@ -42,6 +43,26 @@ class FaceParserTest {
 
     static boolean in(double x, double y, double[] r) {
         return x >= r[0] && x <= r[1] && y >= r[2] && y <= r[3];
+    }
+
+    @Test
+    @DisplayName("네모 안에서 한 분류가 차지하는 비율: 반만 채우면 0.5, 격자 밖 네모는 0")
+    void fraction() {
+        int n = 100;
+        byte[] b = new byte[n * n];
+        FaceLabels lab = new FaceLabels(b, n, -1, -1, 2);
+        for (int j = 0; j < n; j++) {
+            for (int i = 0; i < n; i++) {
+                if (lab.x(i) < 0) {
+                    b[j * n + i] = (byte) FaceLabels.GLASSES;
+                }
+            }
+        }
+        assertThat(lab.fraction(FaceLabels.GLASSES, -0.5, 0.5, -0.5, 0.5)).isCloseTo(0.5, within(0.02));
+        assertThat(lab.fraction(FaceLabels.GLASSES, -0.8, -0.2, -0.5, 0.5)).isEqualTo(1.0);
+        assertThat(lab.fraction(FaceLabels.GLASSES, 0.2, 0.8, -0.5, 0.5)).isEqualTo(0.0);
+        assertThat(lab.fraction(FaceLabels.GLASSES, 3, 4, 3, 4)).isEqualTo(0.0);
+        assertThat(MakeupAnalyzer.eyeGlasses(null)).isEqualTo(0.0);
     }
 
     @Test

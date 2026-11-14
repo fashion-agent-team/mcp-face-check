@@ -18,4 +18,6 @@ face:
     lip-half-width: 0.103
     lip-half-width-model: 0.028
     lip-line: 0.224
-    eye-makeup-model: 0.31
+    # 2026-11-13: 서버가 실제로 재는 사진(안경·한쪽 그늘을 건너뛴 FFHQ 218장)의 p95 0.255 → 0.26(잘못 알림 4%). 전에는 건너뛰는 사진까지 넣어 0.31
+    eye-makeup-model: 0.26
+    eye-glasses: 0.02
