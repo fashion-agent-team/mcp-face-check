@@ -1,3 +1,4 @@
+import os
 """Continue training the teeth model (v4) two ways, on the same data:
   --mode full : every weight trainable (classic fine-tune)
   --mode lora : base frozen; low-rank adapters (rank r) on every 1x1 conv and the
@@ -11,7 +12,7 @@ import numpy as np, torch, torch.nn as nn
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset, ConcatDataset
 from torchvision import models, transforms
-sys.path.insert(0, "/home/user/work/")
+sys.path.insert(0, os.environ.get("TEETH_WORK", os.environ.get("TEETH_WORK", "/home/user/work")) + "/")
 MEAN, STD = [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
 
 class LoRAConv(nn.Module):
@@ -80,8 +81,8 @@ class Real(Dataset):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=["full", "lora"], required=True)
-    ap.add_argument("--init", default="/home/user/work/runs/v4_384/best.pt")
-    ap.add_argument("--data", default=None)
+    ap.add_argument("--init", default=os.environ.get("TEETH_WORK", "/home/user/work") + "/runs/v4_384/best.pt")
+    ap.add_argument("--data", nargs="*", default=[])
     ap.add_argument("--extra", nargs="*", default=[], help="real photo file:label pairs list json")
     ap.add_argument("--extra-repeat", type=int, default=1)
     ap.add_argument("--epochs", type=int, default=4)
@@ -98,15 +99,16 @@ def main():
         transforms.RandomHorizontalFlip(), transforms.ColorJitter(0.1, 0.1, 0.1, 0.02),
         transforms.ToTensor(), transforms.Normalize(MEAN, STD)])
     sets = []
-    if a.data: sets.append(Synth(a.data, "train", tr_tf))
+    for d in a.data: sets.append(Synth(d, "train", tr_tf))
     if a.extra:
         items = []
         for f in a.extra: items += [tuple(x) for x in json.load(open(f))]
         sets.append(Real(items, tr_tf, a.extra_repeat))
-    dl = DataLoader(ConcatDataset(sets), batch_size=a.batch, shuffle=True, num_workers=3, drop_last=len(sets[0]) > a.batch)
+    dl = DataLoader(ConcatDataset(sets), batch_size=a.batch, shuffle=True, num_workers=int(os.environ.get("WORKERS", "3")), drop_last=len(sets[0]) > a.batch)
     model = models.mobilenet_v3_small(); model.classifier[3] = nn.Linear(1024, 1)
     ck = torch.load(a.init, map_location="cpu"); model.load_state_dict(ck["model"])
     if a.mode == "lora": add_lora(model, a.rank, a.alpha)
+    dev = torch.device("cuda" if torch.cuda.is_available() else "cpu"); model = model.to(dev)
     params = [p for p in model.parameters() if p.requires_grad]
     n_tr = sum(p.numel() for p in params); n_all = sum(p.numel() for p in model.parameters())
     print(f"{a.mode}: trainable {n_tr:,} / {n_all:,} ({100*n_tr/n_all:.2f}%), train images {sum(len(s) for s in sets)}", flush=True)
@@ -120,7 +122,7 @@ def main():
     for ep in range(1, a.epochs + 1):
         model.train(); bn_eval(model); tot = n = 0
         for x, y in dl:
-            loss = loss_fn(model(x), y); opt.zero_grad(); loss.backward(); opt.step(); sched.step()
+            x, y = x.to(dev), y.to(dev); loss = loss_fn(model(x), y); opt.zero_grad(); loss.backward(); opt.step(); sched.step()
             tot += loss.item() * len(x); n += len(x); step += 1
             if step % 50 == 0: print(f"  step {step}/{steps} loss {tot/n:.4f} {time.time()-t0:.0f}s", flush=True)
             if step >= steps: break
@@ -128,14 +130,18 @@ def main():
         print(hist[-1], flush=True)
         if step >= steps: break
     if a.mode == "lora": merge_lora(model)
-    out = Path("/home/user/work/runs") / a.name; out.mkdir(parents=True, exist_ok=True)
+    model = model.to("cpu")
+    out = Path(os.environ.get("TEETH_WORK", "/home/user/work")) / "runs" / a.name; out.mkdir(parents=True, exist_ok=True)
     cfg = ck["config"]
     torch.save({"model": model.state_dict(), "config": cfg, "epoch": len(hist)}, out / "best.pt")
     json.dump({"mode": a.mode, "trainable": n_tr, "total": n_all, "train_sec": round(time.time() - t0),
                "history": hist, "args": vars(a)}, open(out / "train.json", "w"), indent=1)
     model.eval(); dummy = torch.zeros(1, 3, size, size)
-    torch.onnx.export(model, dummy, str(out / "teeth_mobilenetv3.onnx"), opset_version=17, dynamo=False,
+    try:
+      torch.onnx.export(model, dummy, str(out / "teeth_mobilenetv3.onnx"), opset_version=17, dynamo=False,
                       input_names=["image"], output_names=["logits"], dynamic_axes={"image": {0: "batch"}, "logits": {0: "batch"}})
+    except Exception as e:
+      print("onnx export skipped:", e)
     json.dump(cfg, open(out / "teeth_mobilenetv3.json", "w"), indent=2)
     print("done", out, f"{time.time()-t0:.0f}s")
 

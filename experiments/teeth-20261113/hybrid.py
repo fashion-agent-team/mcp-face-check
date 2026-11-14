@@ -1,5 +1,6 @@
+import os
 import sys, json, pickle, numpy as np, cv2
-sys.path.insert(0, "/home/user/scripts")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import evalset as E, color_hist as CH
 W = E.W
 gbm = pickle.load(open(W / "color_gbm.pkl", "rb"))

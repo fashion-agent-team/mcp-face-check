@@ -1,9 +1,10 @@
+import os
 """Learned colour-only baseline: Lab colour histogram of the middle of the crop -> logistic regression.
 No shapes, no positions: only "which colours are in the mouth area and how much"."""
 import sys, json, numpy as np, cv2
 from pathlib import Path
-sys.path.insert(0, "/home/user/work"); import crop_rule
-W = Path("/home/user/work")
+sys.path.insert(0, os.environ.get("TEETH_WORK", "/home/user/work")); import crop_rule
+W = Path(os.environ.get("TEETH_WORK", "/home/user/work"))
 def feat(bgr):
     n = 192; im = cv2.resize(bgr, (n, n), interpolation=cv2.INTER_AREA)
     m = int(n * 0.14); im = im[m:n - m, m:n - m]
