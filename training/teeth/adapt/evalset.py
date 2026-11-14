@@ -5,11 +5,11 @@ C) clean real val faces (unaltered mouths_tight val crops, 6-view TTA, 0.7/0.3)
 D) real food photos (crops listed in real/*.png with inner box json), 6-view TTA."""
 import sys, json, glob, numpy as np, torch, cv2
 from pathlib import Path
-sys.path.insert(0, os.environ.get("TEETH_WORK", "/home/user/work"))
+sys.path.insert(0, os.environ.get("TEETH_WORK", os.path.expanduser("~/teeth-work")))
 import crop_rule
 from torchvision import models
 import torch.nn as nn
-W = Path(os.environ.get("TEETH_WORK", "/home/user/work"))
+W = Path(os.environ.get("TEETH_WORK", os.path.expanduser("~/teeth-work")))
 MEAN = np.array([0.485, 0.456, 0.406], np.float32); STD = np.array([0.229, 0.224, 0.225], np.float32)
 torch.set_num_threads(4)
 

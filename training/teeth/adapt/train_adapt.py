@@ -12,7 +12,7 @@ import numpy as np, torch, torch.nn as nn
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset, ConcatDataset
 from torchvision import models, transforms
-sys.path.insert(0, os.environ.get("TEETH_WORK", os.environ.get("TEETH_WORK", "/home/user/work")) + "/")
+sys.path.insert(0, os.environ.get("TEETH_WORK", os.path.expanduser("~/teeth-work")) + "/")
 MEAN, STD = [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
 
 class LoRAConv(nn.Module):
@@ -81,7 +81,7 @@ class Real(Dataset):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=["full", "lora"], required=True)
-    ap.add_argument("--init", default=os.environ.get("TEETH_WORK", "/home/user/work") + "/runs/v4_384/best.pt")
+    ap.add_argument("--init", default=os.environ.get("TEETH_WORK", os.path.expanduser("~/teeth-work")) + "/runs/v4_384/best.pt")
     ap.add_argument("--data", nargs="*", default=[])
     ap.add_argument("--extra", nargs="*", default=[], help="real photo file:label pairs list json")
     ap.add_argument("--extra-repeat", type=int, default=1)
@@ -131,7 +131,7 @@ def main():
         if step >= steps: break
     if a.mode == "lora": merge_lora(model)
     model = model.to("cpu")
-    out = Path(os.environ.get("TEETH_WORK", "/home/user/work")) / "runs" / a.name; out.mkdir(parents=True, exist_ok=True)
+    out = Path(os.environ.get("TEETH_WORK", os.path.expanduser("~/teeth-work"))) / "runs" / a.name; out.mkdir(parents=True, exist_ok=True)
     cfg = ck["config"]
     torch.save({"model": model.state_dict(), "config": cfg, "epoch": len(hist)}, out / "best.pt")
     json.dump({"mode": a.mode, "trainable": n_tr, "total": n_all, "train_sec": round(time.time() - t0),

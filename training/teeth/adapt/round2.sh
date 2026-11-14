@@ -1,15 +1,18 @@
 #!/bin/bash
 # 2차 실험 (젯슨): 데이터 만들기 → 5가지 학습 → 같은 시험 세트로 평가.
-# 준비: TEETH_WORK 폴더에 mouths_tight/ (teeth.tar), 이 폴더의 스크립트, python에 torch torchvision opencv numpy pillow.
+# 준비: TEETH_WORK 폴더(기본 ~/teeth-work)에 mouths_tight/ (README의 1~4단계 결과), python에 torch torchvision opencv numpy pillow.
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 export TEETH_WORK=${TEETH_WORK:-$HOME/teeth-work}
 PY=${PY:-python3}
 cd "$TEETH_WORK"
-cp "$HERE"/crop_rule.py . 2>/dev/null || true
-mkdir -p runs/v4_384 && cp "$HERE"/models/v4_384_best.pt runs/v4_384/best.pt && cp "$HERE"/models/config.json runs/v4_384/teeth_mobilenetv3.json
-[ -f dataset_v2/labels.json ] || $PY "$HERE"/synth_v2_old.py --src mouths_tight --out dataset_v2
-[ -f dataset_v4/labels.json ] || $PY "$HERE"/synth_v4.py --variants 4 --src mouths_tight --out dataset_v4
+TEETH=$(cd "$HERE/.." && pwd); MODELS=$(cd "$HERE/../../../src/main/resources/models" && pwd)
+cp "$TEETH"/crop_rule.py .
+# v4 best.pt는 레포에 없어서 서버 ONNX(BN 합쳐진 것)에서 torchvision 가중치로 되살림(차이 약 8e-5)
+mkdir -p runs/v4_384 && [ -f runs/v4_384/best.pt ] || $PY "$HERE"/onnx_to_pt.py "$MODELS"/teeth_mobilenetv3.onnx runs/v4_384/best.pt
+cp "$MODELS"/teeth_mobilenetv3.json runs/v4_384/teeth_mobilenetv3.json
+[ -f dataset_v2/labels.json ] || $PY "$HERE"/synth_v2.py --src mouths_tight --out dataset_v2
+[ -f dataset_v4/labels.json ] || $PY "$TEETH"/synth.py --variants 4 --src mouths_tight --out dataset_v4
 [ -f dataset_v5/labels.json ] || $PY "$HERE"/synth_v5.py --variants 4 --gen-seed 7 --src mouths_tight --out dataset_v5
 B=${BATCH:-16}
 run() { name=$1; shift; [ -f runs/$name/best.pt ] || $PY "$HERE"/train_adapt.py --name $name --batch $B "$@" 2>&1 | tee runs_$name.log | grep -v Warn | tail -3; }

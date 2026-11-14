@@ -59,3 +59,27 @@ v4는 v2(ImageNet 시작) → v3(`dataset_v3`, 320px, 3장씩) → v4(`dataset_v
 - 실제로 음식이 낀 사진은 아직 1장으로만 확인했습니다. 팀원이 고춧가루·김·깨를 이에 붙여 찍은 사진 10~20장으로
   `eval_onnx.py --crop-faces --label food`를 돌려 봐야 진짜 인식률을 알 수 있습니다.
 - 밥알·깨처럼 이와 색이 비슷한 것은 여전히 약합니다(합성 0.8 안팎).
+
+## v4 이어 학습·LoRA 실험 (2026-11-13~14, 모델 교체 없음)
+
+강사님이 주신 세 가지(이물질 낀 사진으로 시험, v4에 추가 학습, LoRA 붙여 학습)를 해 봤습니다.
+결과는 [docs/lab.md](../../docs/lab.md)의 "1-4"에 있고, 결론은 **v4 유지**입니다.
+합성 사진 점수는 올랐지만(AUC 0.958 → 최고 0.967) 깨끗한 실제 이 잘못 알림이 1.5% → 1.9~3.1%로 늘었습니다.
+
+스크립트는 [adapt/](adapt/)에 있고, 모델 파일과 사진은 올리지 않았습니다.
+
+| 스크립트 | 하는 일 |
+|---|---|
+| `adapt/onnx_to_pt.py` | 서버 ONNX(BN 합쳐진 것)에서 torchvision 가중치(best.pt)를 되살림 |
+| `adapt/synth_v5.py` | 합성 v5: 깨·밥알·국수 2.5배, 고춧가루 3배 |
+| `adapt/synth_v2.py` | 시험용 합성 v2 세트(1,048장)를 다시 만들 때 쓰는 옛 합성 |
+| `adapt/train_adapt.py` | `--mode full`(전체 이어 학습) / `--mode lora`(1×1 conv·Linear에 LoRA, 학습 뒤 합쳐서 같은 크기 ONNX). BN은 고정 |
+| `adapt/evalset.py`, `adapt/compare.py` | 합성 시험, 깨끗한 실제 이(6번 평균) 평가와 모델 비교 |
+| `adapt/eval_gen.py` | AI로 만든 시험 사진 폴더(food/clean/bases) 평가 |
+| `adapt/color_rule.py`, `adapt/color_hist.py`, `adapt/hybrid.py` | 색으로 찾기 실험(손 규칙, 색 분포 + GBM, v4와 섞기) |
+| `adapt/round2.sh` | 2차 다섯 가지 학습 + 비교를 한 번에(젯슨 GPU에서 판당 약 5분) |
+
+```bash
+export TEETH_WORK=~/teeth-work   # mouths_tight/ 가 있는 폴더
+bash training/teeth/adapt/round2.sh
+```
