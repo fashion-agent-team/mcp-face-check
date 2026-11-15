@@ -1,0 +1,149 @@
+"""[젯슨 GPU] 눈화장 좌우 비교 모델 학습 + 서버식 평가. train_eye_model.py(넓은 망 4판 = 지금 서버 모델)와 같은 구조·증강.
+- 데이터: out/pack/{a,b,y}.npy를 mmap으로 조금씩 읽음(make_data.sh로 맥에서 만들어 복사)
+- 에폭마다 out/jetson/<이름>/ck.pt 저장 → 끊기면 같은 명령으로 이어서
+- 메모리 감시: 젯슨 남은 메모리(MemAvailable)가 --min-free GB 아래면 저장하고 종료 코드 75(서버가 먼저 살아야 함)
+- 끝나면 eye_<이름>.onnx, 평가(eval.json: 안경·조명으로 거른 사진에서 실사진 p95 기준 검출률), R.npy(앙상블 평가용)
+사용: python3 train_eye.py --name s13 [--seed 13] [--epochs 16] [--width 1.0] [--lr 3e-3] [--batch 64]
+      python3 train_eye.py --eval-onnx ../../src/main/resources/models/eye_makeup.onnx --name server  (지금 모델 평가만)"""
+import argparse, json, os, pathlib, sys, threading, queue, time, numpy as np, torch, torch.nn as nn
+HERE = pathlib.Path(__file__).resolve().parent.parent
+ap = argparse.ArgumentParser()
+ap.add_argument('--name', required=True); ap.add_argument('--seed', type=int, default=13)
+ap.add_argument('--epochs', type=int, default=16); ap.add_argument('--width', type=float, default=1.0)
+ap.add_argument('--lr', type=float, default=3e-3); ap.add_argument('--batch', type=int, default=64)
+ap.add_argument('--min-free', type=float, default=1.0); ap.add_argument('--eval-onnx')
+ap.add_argument('--pack', default=str(HERE / 'out/pack'))
+args = ap.parse_args()
+PACK = pathlib.Path(args.pack); OUT = HERE / 'out/jetson' / args.name; OUT.mkdir(parents=True, exist_ok=True)
+dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+torch.manual_seed(args.seed); np.random.seed(args.seed); torch.backends.cudnn.benchmark = True
+
+
+def mem_free_gb():
+    for line in open('/proc/meminfo'):
+        if line.startswith('MemAvailable:'): return int(line.split()[1]) / 1048576
+    return 99.0
+
+
+class Net(nn.Module):
+    def __init__(s, w=1.0):
+        super().__init__()
+        c = [max(8, int(round(k * w))) for k in (24, 48, 96, 128)]
+        def blk(i, o): return nn.Sequential(nn.Conv2d(i, o, 3, padding=1), nn.BatchNorm2d(o), nn.ReLU(), nn.Conv2d(o, o, 3, padding=1), nn.BatchNorm2d(o), nn.ReLU(), nn.MaxPool2d(2))
+        s.f = nn.Sequential(blk(3, c[0]), blk(c[0], c[1]), blk(c[1], c[2]), blk(c[2], c[3]), nn.AdaptiveAvgPool2d(1), nn.Flatten())
+        s.h = nn.Sequential(nn.Linear(2 * c[3], 64), nn.ReLU(), nn.Linear(64, 1))
+    def pair(s, ea, eb): return (s.h(torch.cat([ea, eb], 1)) - s.h(torch.cat([eb, ea], 1))).squeeze(1)
+    def forward(s, a, b): return s.pair(s.f(a), s.f(b))
+
+
+class Wrap(nn.Module):
+    """서버 입력: [2,3,H,W] RGB 0~1 (0=사진 왼쪽 조각, 1=오른쪽 조각을 뒤집은 것, 둘 다 바깥쪽이 왼쪽). 출력: [1] 0번 − 1번"""
+    def __init__(s, n): super().__init__(); s.n = n
+    def forward(s, x):
+        e = s.n.f(x[:, [2, 1, 0]])
+        return s.n.pair(e[0:1], e[1:2]).reshape(1)
+
+
+def t(x):  # uint8 BGR [N,H,W,3] → GPU float [N,3,H,W] (학습 데이터와 서버 둘 다 BGR 순서로 망에 들어감)
+    return torch.from_numpy(np.ascontiguousarray(x)).to(dev, non_blocking=True).permute(0, 3, 1, 2).float() / 255.0
+
+
+def evaluate(score_fn):
+    """평가 묶음 [N,6,7,2,H,W,3] → R[N,6,7]; 서버처럼 안경 ≤0.02·밝기 차이 ≤15만 남겨 실사진 p95 기준 검출률"""
+    P = np.load(PACK / 'eval_p.npy', mmap_mode='r'); M = np.load(PACK / 'eval_meta.npz')
+    R = np.zeros(P.shape[:3], np.float32)
+    for i in range(len(P)):
+        x = np.asarray(P[i]).reshape(-1, 2, *P.shape[4:])  # [42,2,H,W,3]
+        R[i] = score_fn(x).reshape(P.shape[1:3])
+    np.save(OUT / 'R.npy', R)
+    return report(R, M)
+
+
+def report(R, M):
+    SG = M['sg']; g = (M['glasses'] <= 0.02) & (M['light'] <= 15); Rm = R.mean(2)
+    th = np.percentile(np.abs(Rm[g, 0]), 95); K = ['shadow.3', 'shadow.5', 'shadow.7', 'liner.5', 'liner.8']
+    out = {'name': args.name, 'n': int(g.sum()), 'p95': round(float(th), 3)}
+    for k, n in enumerate(K): out[n] = round(float(np.mean(Rm[g, k + 1] * SG[g] > th)), 3)
+    out['all'] = round(float(np.mean([out[n] for n in K])), 3)
+    return out
+
+
+if args.eval_onnx:  # 기존 onnx 평가만(서버 모델 기준점)
+    import onnxruntime as ort
+    m = ort.InferenceSession(args.eval_onnx, providers=['CPUExecutionProvider'])
+    def sf(x):
+        xr = (x[..., ::-1].astype(np.float32) / 255).transpose(0, 1, 4, 2, 3)
+        return np.array([m.run(None, {'patches': np.ascontiguousarray(xr[j])})[0][0] for j in range(len(xr))])
+    res = evaluate(sf); json.dump(res, open(OUT / 'eval.json', 'w')); print(json.dumps(res)); sys.exit(0)
+
+A = np.load(PACK / 'a.npy', mmap_mode='r'); B = np.load(PACK / 'b.npy', mmap_mode='r'); Y = np.load(PACK / 'y.npy')
+n = len(Y); idx = np.random.default_rng(0).permutation(n); va = np.sort(idx[: n // 10]); tr = idx[n // 10:]
+print(args.name, 'pairs', n, 'device', dev, 'free GB', round(mem_free_gb(), 2), flush=True)
+net = Net(args.width).to(dev); opt = torch.optim.AdamW(net.parameters(), 2e-3, weight_decay=1e-4)
+steps = len(tr) // args.batch + 1
+sched = torch.optim.lr_scheduler.OneCycleLR(opt, args.lr, total_steps=args.epochs * steps)
+scaler = torch.amp.GradScaler(enabled=dev.type == 'cuda')
+CK = OUT / 'ck.pt'; start = 0
+if CK.exists():
+    c = torch.load(CK, weights_only=False, map_location=dev)
+    net.load_state_dict(c['net']); opt.load_state_dict(c['opt']); sched.load_state_dict(c['sched']); scaler.load_state_dict(c['scaler'])
+    np.random.set_state(c['np']); torch.set_rng_state(c['torch']); start = c['ep'] + 1
+    print('resume from ep', start, flush=True)
+
+
+def aug(x):  # 한쪽씩 따로 밝기·대비 흔들기(좌우 조명 차이에 강해짐), 작은 이동
+    k = len(x)
+    x = x * (0.7 + 0.6 * torch.rand(k, 1, 1, 1, device=dev)) + 0.1 * (torch.rand(k, 1, 1, 1, device=dev) - 0.5)
+    dx, dy = np.random.randint(-6, 7), np.random.randint(-4, 5)
+    return torch.roll(x, (dy, dx), (2, 3)).clamp(0, 1)
+
+
+def batches(order):
+    """mmap에서 미리 읽어 두는 스레드(디스크 읽기와 GPU 계산을 겹침)"""
+    q = queue.Queue(maxsize=6)
+    def run():
+        for i in range(0, len(order), args.batch):
+            j = np.sort(order[i:i + args.batch]); q.put((A[j], B[j], Y[j]))
+        q.put(None)
+    threading.Thread(target=run, daemon=True).start()
+    while (b := q.get()) is not None: yield b
+
+
+def save(ep):
+    torch.save(dict(net=net.state_dict(), opt=opt.state_dict(), sched=sched.state_dict(), scaler=scaler.state_dict(),
+                    np=np.random.get_state(), torch=torch.get_rng_state(), ep=ep), str(CK) + '.tmp')
+    os.replace(str(CK) + '.tmp', CK)
+
+
+log = open(OUT / 'train.log', 'a')
+for ep in range(start, args.epochs):
+    net.train(); tot = 0; t0 = time.time()
+    order = np.random.permutation(tr)
+    for s, (a, b, y) in enumerate(batches(order)):
+        if s % 200 == 0 and mem_free_gb() < args.min_free:
+            print(f'메모리 부족(남은 {mem_free_gb():.2f}GB) → 멈춤. ep{ep}는 처음부터 다시', flush=True)
+            sys.exit(75)
+        a, b, y = t(a), t(b), torch.from_numpy(y).to(dev)
+        if np.random.rand() < .5: a, b, y = b, a, -y   # 좌우 바꿔도 같은 규칙
+        with torch.autocast(dev.type, dtype=torch.float16, enabled=dev.type == 'cuda'):
+            p = net(aug(a), aug(b))
+        loss = nn.functional.smooth_l1_loss(p.float(), y, beta=0.05)
+        opt.zero_grad(set_to_none=True); scaler.scale(loss).backward(); scaler.step(opt); scaler.update(); sched.step()
+        tot += loss.item() * len(y)
+    net.eval(); ps = []
+    with torch.no_grad():
+        for i in range(0, len(va), 256):
+            j = va[i:i + 256]; ps.append(net(t(A[j]), t(B[j])).float().cpu())
+    p = torch.cat(ps).numpy(); yv = Y[va]; th = np.percentile(np.abs(p[yv == 0]), 95); e = yv != 0
+    msg = f"ep{ep} loss {tot/len(tr):.4f} val corr {np.corrcoef(p, yv)[0,1]:.3f} detect@p95 {np.mean(np.abs(p[e]) > th):.0%} {time.time()-t0:.0f}s free {mem_free_gb():.1f}GB"
+    print(msg, flush=True); log.write(msg + '\n'); log.flush(); save(ep)
+
+net.eval(); torch.save(net.state_dict(), OUT / 'eye.pt')
+w = Wrap(net.float().cpu()).eval()
+torch.onnx.export(w, torch.rand(2, 3, 96, 120), str(OUT / f'eye_{args.name}.onnx'), input_names=['patches'], output_names=['score'], opset_version=17, dynamo=False)
+net.to(dev)
+def sf(x):
+    with torch.no_grad(): return net(t(x[:, 0]), t(x[:, 1])).float().cpu().numpy()
+res = evaluate(sf); res.update(seed=args.seed, epochs=args.epochs, width=args.width, lr=args.lr)
+json.dump(res, open(OUT / 'eval.json', 'w')); print('EVAL', json.dumps(res), flush=True)
+with open(HERE / 'out/jetson/results.jsonl', 'a') as f: f.write(json.dumps(res) + '\n')
