@@ -1,7 +1,7 @@
 """[젯슨 GPU] 눈화장 좌우 비교 모델 학습 + 서버식 평가. train_eye_model.py(넓은 망 4판 = 지금 서버 모델)와 같은 구조·증강.
 - 데이터: out/pack/{a,b,y}.npy를 mmap으로 조금씩 읽음(make_data.sh로 맥에서 만들어 복사)
 - 에폭마다 out/jetson/<이름>/ck.pt 저장 → 끊기면 같은 명령으로 이어서
-- 메모리 감시: 젯슨 남은 메모리(MemAvailable)가 --min-free GB 아래면 저장하고 종료 코드 75(서버가 먼저 살아야 함)
+- 메모리 감시: 젯슨 남은 메모리(MemAvailable)가 --min-free GB 아래거나, 다른 스레드가 ~/gpu-train.lock을 만들면 종료 코드 75(서버·다른 학습 먼저)
 - 끝나면 eye_<이름>.onnx, 평가(eval.json: 안경·조명으로 거른 사진에서 실사진 p95 기준 검출률), R.npy(앙상블 평가용)
 사용: python3 train_eye.py --name s13 [--seed 13] [--epochs 16] [--width 1.0] [--lr 3e-3] [--batch 64]
       python3 train_eye.py --eval-onnx ../../src/main/resources/models/eye_makeup.onnx --name server  (지금 모델 평가만)"""
@@ -17,6 +17,15 @@ args = ap.parse_args()
 PACK = pathlib.Path(args.pack); OUT = HERE / 'out/jetson' / args.name; OUT.mkdir(parents=True, exist_ok=True)
 dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 torch.manual_seed(args.seed); np.random.seed(args.seed); torch.backends.cudnn.benchmark = True
+
+
+LOCK = pathlib.Path(os.environ.get('GPU_LOCK', os.path.expanduser('~/gpu-train.lock')))
+
+
+def other_job():
+    """다른 스레드가 젯슨 GPU를 쓰겠다고 잠금 파일을 만들었으면 True(우리 것은 'face-check'로 시작)"""
+    try: return not LOCK.read_text().startswith('face-check')
+    except OSError: return False
 
 
 def mem_free_gb():
@@ -120,8 +129,8 @@ for ep in range(start, args.epochs):
     net.train(); tot = 0; t0 = time.time()
     order = np.random.permutation(tr)
     for s, (a, b, y) in enumerate(batches(order)):
-        if s % 200 == 0 and mem_free_gb() < args.min_free:
-            print(f'메모리 부족(남은 {mem_free_gb():.2f}GB) → 멈춤. ep{ep}는 처음부터 다시', flush=True)
+        if s % 200 == 0 and (mem_free_gb() < args.min_free or other_job()):
+            print(f'메모리 부족(남은 {mem_free_gb():.2f}GB) 또는 다른 학습({LOCK}) → 멈춤. ep{ep}는 처음부터 다시', flush=True)
             sys.exit(75)
         a, b, y = t(a), t(b), torch.from_numpy(y).to(dev)
         if np.random.rand() < .5: a, b, y = b, a, -y   # 좌우 바꿔도 같은 규칙
