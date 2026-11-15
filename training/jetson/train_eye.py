@@ -3,7 +3,7 @@
 - 에폭마다 out/jetson/<이름>/ck.pt 저장 → 끊기면 같은 명령으로 이어서
 - 메모리 감시: 젯슨 남은 메모리(MemAvailable)가 --min-free GB 아래거나, 다른 스레드가 ~/gpu-train.lock을 만들면 종료 코드 75(서버·다른 학습 먼저)
 - 끝나면 eye_<이름>.onnx, 평가(eval.json: 안경·조명으로 거른 사진에서 실사진 p95 기준 검출률), R.npy(앙상블 평가용)
-사용: python3 train_eye.py --name s13 [--seed 13] [--epochs 16] [--width 1.0] [--lr 3e-3] [--batch 64]
+사용: python3 train_eye.py --name s13 [--seed 13] [--epochs 16] [--width 1.0] [--lr 3e-3] [--batch 64] [--arch small|r18]
       python3 train_eye.py --eval-onnx ../../src/main/resources/models/eye_makeup.onnx --name server  (지금 모델 평가만)"""
 import argparse, json, os, pathlib, sys, threading, queue, time, numpy as np, torch, torch.nn as nn
 HERE = pathlib.Path(__file__).resolve().parent.parent
@@ -13,6 +13,7 @@ ap.add_argument('--epochs', type=int, default=16); ap.add_argument('--width', ty
 ap.add_argument('--lr', type=float, default=3e-3); ap.add_argument('--batch', type=int, default=64)
 ap.add_argument('--min-free', type=float, default=1.0); ap.add_argument('--eval-onnx')
 ap.add_argument('--pack', default=str(HERE / 'out/pack'))
+ap.add_argument('--arch', default='small', choices=['small', 'r18'])   # r18 = ImageNet으로 미리 학습된 ResNet18 몸통(합성→실사진 일반화 기대)
 args = ap.parse_args()
 PACK = pathlib.Path(args.pack); OUT = HERE / 'out/jetson' / args.name; OUT.mkdir(parents=True, exist_ok=True)
 dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -43,6 +44,45 @@ class Net(nn.Module):
         s.h = nn.Sequential(nn.Linear(2 * c[3], 64), nn.ReLU(), nn.Linear(64, 1))
     def pair(s, ea, eb): return (s.h(torch.cat([ea, eb], 1)) - s.h(torch.cat([eb, ea], 1))).squeeze(1)
     def forward(s, a, b): return s.pair(s.f(a), s.f(b))
+
+
+class Basic(nn.Module):
+    """torchvision ResNet BasicBlock과 같은 이름(공식 ImageNet 가중치를 그대로 읽으려고)"""
+    def __init__(s, i, o, st):
+        super().__init__()
+        s.conv1 = nn.Conv2d(i, o, 3, st, 1, bias=False); s.bn1 = nn.BatchNorm2d(o); s.relu = nn.ReLU(inplace=True)
+        s.conv2 = nn.Conv2d(o, o, 3, 1, 1, bias=False); s.bn2 = nn.BatchNorm2d(o)
+        s.downsample = nn.Sequential(nn.Conv2d(i, o, 1, st, bias=False), nn.BatchNorm2d(o)) if st != 1 or i != o else None
+    def forward(s, x):
+        y = s.bn2(s.conv2(s.relu(s.bn1(s.conv1(x)))))
+        return s.relu(y + (x if s.downsample is None else s.downsample(x)))
+
+
+class R18(nn.Module):
+    """입력 BGR 0~1 → RGB·ImageNet 정규화 → ResNet18 → 512"""
+    URL = 'https://download.pytorch.org/models/resnet18-f37072fd.pth'
+    def __init__(s, pretrained=True):
+        super().__init__()
+        s.conv1 = nn.Conv2d(3, 64, 7, 2, 3, bias=False); s.bn1 = nn.BatchNorm2d(64); s.relu = nn.ReLU(inplace=True); s.maxpool = nn.MaxPool2d(3, 2, 1)
+        s.layer1 = nn.Sequential(Basic(64, 64, 1), Basic(64, 64, 1)); s.layer2 = nn.Sequential(Basic(64, 128, 2), Basic(128, 128, 1))
+        s.layer3 = nn.Sequential(Basic(128, 256, 2), Basic(256, 256, 1)); s.layer4 = nn.Sequential(Basic(256, 512, 2), Basic(512, 512, 1))
+        s.register_buffer('mean', torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)); s.register_buffer('std', torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
+        if pretrained:
+            sd = torch.hub.load_state_dict_from_url(s.URL, map_location='cpu', progress=False)
+            miss = s.load_state_dict({k: v for k, v in sd.items() if not k.startswith('fc.')}, strict=False)
+            assert miss.missing_keys == ['mean', 'std'] and not miss.unexpected_keys, miss
+    def forward(s, x):
+        x = (x[:, [2, 1, 0]] - s.mean) / s.std
+        x = s.maxpool(s.relu(s.bn1(s.conv1(x))))
+        x = s.layer4(s.layer3(s.layer2(s.layer1(x))))
+        return x.mean((2, 3))
+
+
+class NetR18(Net):
+    def __init__(s, pretrained=True):
+        nn.Module.__init__(s)
+        s.f = R18(pretrained)
+        s.h = nn.Sequential(nn.Linear(1024, 64), nn.ReLU(), nn.Linear(64, 1))
 
 
 class Wrap(nn.Module):
@@ -87,8 +127,9 @@ if args.eval_onnx:  # 기존 onnx 평가만(서버 모델 기준점)
 
 A = np.load(PACK / 'a.npy', mmap_mode='r'); B = np.load(PACK / 'b.npy', mmap_mode='r'); Y = np.load(PACK / 'y.npy')
 n = len(Y); idx = np.random.default_rng(0).permutation(n); va = np.sort(idx[: n // 10]); tr = idx[n // 10:]
-print(args.name, 'pairs', n, 'device', dev, 'free GB', round(mem_free_gb(), 2), flush=True)
-net = Net(args.width).to(dev); opt = torch.optim.AdamW(net.parameters(), 2e-3, weight_decay=1e-4)
+CK_EXISTS = (OUT / 'ck.pt').exists()
+print(args.name, args.arch, 'pairs', n, 'device', dev, 'free GB', round(mem_free_gb(), 2), flush=True)
+net = (NetR18(not CK_EXISTS) if args.arch == 'r18' else Net(args.width)).to(dev); opt = torch.optim.AdamW(net.parameters(), 2e-3, weight_decay=1e-4)
 steps = len(tr) // args.batch + 1
 sched = torch.optim.lr_scheduler.OneCycleLR(opt, args.lr, total_steps=args.epochs * steps)
 scaler = torch.amp.GradScaler(enabled=dev.type == 'cuda')
@@ -157,6 +198,6 @@ torch.onnx.export(w, torch.rand(2, 3, 96, 120), str(OUT / f'eye_{args.name}.onnx
 net.to(dev)
 def sf(x):
     with torch.no_grad(): return net(t(x[:, 0]), t(x[:, 1])).float().cpu().numpy()
-res = evaluate(sf); res.update(seed=args.seed, epochs=args.epochs, width=args.width, lr=args.lr)
+res = evaluate(sf); res.update(seed=args.seed, epochs=args.epochs, width=args.width, lr=args.lr, arch=args.arch)
 json.dump(res, open(OUT / 'eval.json', 'w')); print('EVAL', json.dumps(res), flush=True)
 with open(HERE / 'out/jetson/results.jsonl', 'a') as f: f.write(json.dumps(res) + '\n')

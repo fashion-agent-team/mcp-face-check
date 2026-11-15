@@ -27,13 +27,14 @@ run() {  # 이름 나머지-인자
 }
 # 기준점: 지금 서버 모델(거른 평가 약 71%)
 [ -f $OUTD/server/eval.json ] || $PY train_eye.py --name server --eval-onnx ../../src/main/resources/models/eye_makeup.onnx
-# 클라우드 기록: 서버 모델(v7)은 씨앗 7·8에폭. 더 길게(v7+6에폭, 16에폭)는 실사진에서 떨어짐(합성 데이터에 너무 맞춰짐)
-# 1) 서버 모델과 같은 설정(8에폭)  2) 더 짧게(6)  3) 넓은 망 8에폭  4) 다른 씨앗 8에폭  — 에폭마다 real all 기록을 보고 길이 조정
-run s7e8 --seed 7 --epochs 8
-run s13e6 --seed 13 --epochs 6
-run w15s7e8 --seed 7 --epochs 8 --width 1.5
-run s21e8 --seed 21 --epochs 8
-# 그다음은 멈출 때까지 씨앗을 바꿔 앙상블 후보를 쌓음
-s=31
-while ! stop; do run s${s}e8 --seed $s --epochs 8; s=$((s+10)); done
+# 돌릴 판은 runs.txt(한 줄에 "이름 인자…", #은 주석)에서 위부터 안 끝난 것을 하나씩 골라 돌림.
+# 판마다 runs.txt를 다시 읽으니, 돌아가는 중에 줄을 더하거나 순서를 바꿔도 됨(loop를 다시 켤 필요 없음). 다 끝나면 10분마다 새 줄을 기다림.
+while ! stop; do
+  next=$(grep -v '^\s*#' runs.txt | grep -v '^\s*$' | while read -r name rest; do [ -f $OUTD/$name/eval.json ] || [ -f $OUTD/$name/FAILED ] || { echo "$name $rest"; break; }; done)
+  if [ -z "$next" ]; then sleep 600; continue; fi
+  set -- $next; name=$1; shift
+  echo "$(date) 시작 $name $*"
+  run "$name" "$@"
+  [ -f $OUTD/$name/eval.json ] || stop || touch $OUTD/$name/FAILED
+done
 echo "$(date) STOP"

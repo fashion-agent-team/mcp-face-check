@@ -12,7 +12,7 @@
 3. **젯슨: 반복 학습** (멈추라고 할 때까지)
    `nohup bash training/jetson/loop.sh > training/out/jetson/loop.log 2>&1 &`
    - 처음에 지금 서버 모델을 평가해요. 서버식으로 거르면 약 71%가 나와야 해요.
-   - 그다음 같은 설정의 긴 학습, 넓은 망, 다른 씨앗을 차례로 돌려요.
+   - 그다음 `training/jetson/runs.txt`에 적힌 판을 위에서부터 차례로 돌려요. 판마다 이 파일을 다시 읽어서, 돌아가는 중에 줄을 더해도 돼요. `--arch r18`은 ImageNet으로 미리 학습된 ResNet18 몸통이에요(가중치는 download.pytorch.org에서 받아요).
    - 결과는 `out/jetson/results.jsonl`과 `out/jetson/best.txt`에 쌓여요. best.txt에는 하나씩 돌린 성적과 앙상블 성적이 들어 있어요.
    - 멈추려면 `touch training/out/jetson/STOP`를 실행하세요.
    - 에폭마다 `ck.pt`를 저장해요. 그래서 끊겨도 같은 명령으로 다시 시작하면 이어서 돌아요.
