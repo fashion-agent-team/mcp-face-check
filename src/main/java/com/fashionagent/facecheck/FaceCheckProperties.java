@@ -65,8 +65,8 @@ public record FaceCheckProperties(
             @DefaultValue("10") double lipColor,
             /** 눈화장(아이섀도·아이라인): 눈꺼풀이 같은 쪽 눈 밑 피부보다 어두운 정도(L*)의 좌우 차이. */
             @DefaultValue("15") double eyeMakeup,
-            /** 눈화장 모델(eye_makeup.onnx) 점수 기준. 모델이 있을 때 eyeMakeup 대신 씀. */
-            @DefaultValue("0.26") double eyeMakeupModel,
+            /** 눈화장 모델(eye_makeup*.onnx 앙상블, 크기 맞춘 점수) 기준. 모델이 있을 때 eyeMakeup 대신 씀. */
+            @DefaultValue("1.319") double eyeMakeupModel,
             /** 눈 둘레 조각에서 안경(얼굴 분할 6번)이 차지하는 비율이 이보다 크면 눈화장은 건너뜀(skipped에 eyeMakeup). */
             @DefaultValue("0.02") double eyeGlasses,
             /** 좌우 밝기(L*) 차이가 이보다 크면 한쪽이 그늘진 것으로 보고 색 비교를 건너뜀. */

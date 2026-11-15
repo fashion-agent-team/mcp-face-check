@@ -19,5 +19,6 @@ face:
     lip-half-width-model: 0.028
     lip-line: 0.224
     # 2026-11-13: 서버가 실제로 재는 사진(안경·한쪽 그늘을 건너뛴 FFHQ 218장)의 p95 0.255 → 0.26(잘못 알림 4%). 전에는 건너뛰는 사진까지 넣어 0.31
-    eye-makeup-model: 0.26
+    # 2026-11-16: 눈화장 앙상블(서버 모델 + ResNet18 3개, 점수 크기 맞춤 단위). FFHQ 실사진 잘못 알림 5% 기준. 근거: training/public-baseline.md "젯슨 GPU 학습"
+    eye-makeup-model: 1.319
     eye-glasses: 0.02
