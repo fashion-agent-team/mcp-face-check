@@ -27,13 +27,13 @@ run() {  # 이름 나머지-인자
 }
 # 기준점: 지금 서버 모델(거른 평가 약 71%)
 [ -f $OUTD/server/eval.json ] || $PY train_eye.py --name server --eval-onnx ../../src/main/resources/models/eye_makeup.onnx
-# 1) 서버 모델과 같은 설정, 씨앗만 바꿔 길게  2) 더 넓은 망  3) 더 긴 학습  4) 낮은 학습률
-run s13e16 --seed 13 --epochs 16
-run w15s13 --seed 13 --epochs 16 --width 1.5
-run s21e24 --seed 21 --epochs 24
-run w20s13 --seed 13 --epochs 16 --width 2.0
-run s13e16lr2 --seed 13 --epochs 16 --lr 2e-3
+# 클라우드 기록: 서버 모델(v7)은 씨앗 7·8에폭. 더 길게(v7+6에폭, 16에폭)는 실사진에서 떨어짐(합성 데이터에 너무 맞춰짐)
+# 1) 서버 모델과 같은 설정(8에폭)  2) 더 짧게(6)  3) 넓은 망 8에폭  4) 다른 씨앗 8에폭  — 에폭마다 real all 기록을 보고 길이 조정
+run s7e8 --seed 7 --epochs 8
+run s13e6 --seed 13 --epochs 6
+run w15s7e8 --seed 7 --epochs 8 --width 1.5
+run s21e8 --seed 21 --epochs 8
 # 그다음은 멈출 때까지 씨앗을 바꿔 앙상블 후보를 쌓음
 s=31
-while ! stop; do run s${s}e16 --seed $s --epochs 16; s=$((s+10)); done
+while ! stop; do run s${s}e8 --seed $s --epochs 8; s=$((s+10)); done
 echo "$(date) STOP"

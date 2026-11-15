@@ -57,14 +57,14 @@ def t(x):  # uint8 BGR [N,H,W,3] → GPU float [N,3,H,W] (학습 데이터와 �
     return torch.from_numpy(np.ascontiguousarray(x)).to(dev, non_blocking=True).permute(0, 3, 1, 2).float() / 255.0
 
 
-def evaluate(score_fn):
+def evaluate(score_fn, save=True):
     """평가 묶음 [N,6,7,2,H,W,3] → R[N,6,7]; 서버처럼 안경 ≤0.02·밝기 차이 ≤15만 남겨 실사진 p95 기준 검출률"""
     P = np.load(PACK / 'eval_p.npy', mmap_mode='r'); M = np.load(PACK / 'eval_meta.npz')
     R = np.zeros(P.shape[:3], np.float32)
     for i in range(len(P)):
         x = np.asarray(P[i]).reshape(-1, 2, *P.shape[4:])  # [42,2,H,W,3]
         R[i] = score_fn(x).reshape(P.shape[1:3])
-    np.save(OUT / 'R.npy', R)
+    if save: np.save(OUT / 'R.npy', R)
     return report(R, M)
 
 
@@ -145,6 +145,10 @@ for ep in range(start, args.epochs):
             j = va[i:i + 256]; ps.append(net(t(A[j]), t(B[j])).float().cpu())
     p = torch.cat(ps).numpy(); yv = Y[va]; th = np.percentile(np.abs(p[yv == 0]), 95); e = yv != 0
     msg = f"ep{ep} loss {tot/len(tr):.4f} val corr {np.corrcoef(p, yv)[0,1]:.3f} detect@p95 {np.mean(np.abs(p[e]) > th):.0%} {time.time()-t0:.0f}s free {mem_free_gb():.1f}GB"
+    def sf_ep(x):
+        with torch.no_grad(): return net(t(x[:, 0]), t(x[:, 1])).float().cpu().numpy()
+    if (PACK / 'eval_p.npy').exists():  # 실사진 점수도 에폭마다 기록(고르는 데 쓰지 말고 몇 에폭이 맞는지 보는 용도)
+        r = evaluate(sf_ep, save=False); msg += f" | real all {r['all']:.3f} (" + ' '.join(f"{r[k]:.2f}" for k in ['shadow.3', 'shadow.5', 'shadow.7', 'liner.5', 'liner.8']) + ')'
     print(msg, flush=True); log.write(msg + '\n'); log.flush(); save(ep)
 
 net.eval(); torch.save(net.state_dict(), OUT / 'eye.pt')
