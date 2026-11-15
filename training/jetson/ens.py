@@ -11,8 +11,8 @@ Rs = {p.parent.name: np.load(p) for p in sorted(J.glob('*/R.npy'))}
 Rs = {k: R / (np.std(R[:, 0]) + 1e-9) for k, R in Rs.items()}  # 모델마다 점수 크기가 달라서 실사진 퍼짐으로 맞춤
 single = sorted(((score(R), k) for k, R in Rs.items()), reverse=True)
 lines = [f'{k:<14} all {s[0]:.3f}  ' + ' '.join(f'{x:.2f}' for x in s[1]) for s, k in single]
-top = [k for _, k in single if k != 'server'][:6]; ens = []
-for r in (2, 3):
+top = [k for _, k in single][:8]; ens = []   # 서버 모델(server)도 앙상블 후보에 넣음
+for r in (2, 3, 4):
     for c in itertools.combinations(top, r): ens.append((score(np.mean([Rs[k] for k in c], 0)), '+'.join(c)))
 ens.sort(reverse=True)
 lines += ['--- 앙상블(상위 5)'] + [f'{k:<30} all {s[0]:.3f}  ' + ' '.join(f'{x:.2f}' for x in s[1]) for s, k in ens[:5]]
