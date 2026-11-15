@@ -13,7 +13,7 @@ ap.add_argument('--epochs', type=int, default=16); ap.add_argument('--width', ty
 ap.add_argument('--lr', type=float, default=3e-3); ap.add_argument('--batch', type=int, default=64)
 ap.add_argument('--min-free', type=float, default=1.0); ap.add_argument('--eval-onnx')
 ap.add_argument('--pack', default=str(HERE / 'out/pack'))
-ap.add_argument('--arch', default='small', choices=['small', 'r18'])   # r18 = ImageNet으로 미리 학습된 ResNet18 몸통(합성→실사진 일반화 기대)
+ap.add_argument('--arch', default='small', choices=['small', 'r18', 'r34'])   # r18 = ImageNet으로 미리 학습된 ResNet18 몸통(합성→실사진 일반화 기대)
 args = ap.parse_args()
 PACK = pathlib.Path(args.pack); OUT = HERE / 'out/jetson' / args.name; OUT.mkdir(parents=True, exist_ok=True)
 dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -59,13 +59,15 @@ class Basic(nn.Module):
 
 
 class R18(nn.Module):
-    """입력 BGR 0~1 → RGB·ImageNet 정규화 → ResNet18 → 512"""
-    URL = 'https://download.pytorch.org/models/resnet18-f37072fd.pth'
-    def __init__(s, pretrained=True):
+    """입력 BGR 0~1 → RGB·ImageNet 정규화 → ResNet18(또는 34) → 512"""
+    URLS = {18: 'https://download.pytorch.org/models/resnet18-f37072fd.pth', 34: 'https://download.pytorch.org/models/resnet34-b627a593.pth'}
+    def __init__(s, pretrained=True, depth=18):
         super().__init__()
+        n = [2, 2, 2, 2] if depth == 18 else [3, 4, 6, 3]
+        def layer(i, o, st, k): return nn.Sequential(Basic(i, o, st), *[Basic(o, o, 1) for _ in range(k - 1)])
         s.conv1 = nn.Conv2d(3, 64, 7, 2, 3, bias=False); s.bn1 = nn.BatchNorm2d(64); s.relu = nn.ReLU(inplace=True); s.maxpool = nn.MaxPool2d(3, 2, 1)
-        s.layer1 = nn.Sequential(Basic(64, 64, 1), Basic(64, 64, 1)); s.layer2 = nn.Sequential(Basic(64, 128, 2), Basic(128, 128, 1))
-        s.layer3 = nn.Sequential(Basic(128, 256, 2), Basic(256, 256, 1)); s.layer4 = nn.Sequential(Basic(256, 512, 2), Basic(512, 512, 1))
+        s.layer1 = layer(64, 64, 1, n[0]); s.layer2 = layer(64, 128, 2, n[1]); s.layer3 = layer(128, 256, 2, n[2]); s.layer4 = layer(256, 512, 2, n[3])
+        s.URL = s.URLS[depth]
         s.register_buffer('mean', torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)); s.register_buffer('std', torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
         if pretrained:
             sd = torch.hub.load_state_dict_from_url(s.URL, map_location='cpu', progress=False)
@@ -79,9 +81,9 @@ class R18(nn.Module):
 
 
 class NetR18(Net):
-    def __init__(s, pretrained=True):
+    def __init__(s, pretrained=True, depth=18):
         nn.Module.__init__(s)
-        s.f = R18(pretrained)
+        s.f = R18(pretrained, depth)
         s.h = nn.Sequential(nn.Linear(1024, 64), nn.ReLU(), nn.Linear(64, 1))
 
 
@@ -129,7 +131,7 @@ A = np.load(PACK / 'a.npy', mmap_mode='r'); B = np.load(PACK / 'b.npy', mmap_mod
 n = len(Y); idx = np.random.default_rng(0).permutation(n); va = np.sort(idx[: n // 10]); tr = idx[n // 10:]
 CK_EXISTS = (OUT / 'ck.pt').exists()
 print(args.name, args.arch, 'pairs', n, 'device', dev, 'free GB', round(mem_free_gb(), 2), flush=True)
-net = (NetR18(not CK_EXISTS) if args.arch == 'r18' else Net(args.width)).to(dev); opt = torch.optim.AdamW(net.parameters(), 2e-3, weight_decay=1e-4)
+net = (NetR18(not CK_EXISTS, int(args.arch[1:])) if args.arch in ('r18', 'r34') else Net(args.width)).to(dev); opt = torch.optim.AdamW(net.parameters(), 2e-3, weight_decay=1e-4)
 steps = len(tr) // args.batch + 1
 sched = torch.optim.lr_scheduler.OneCycleLR(opt, args.lr, total_steps=args.epochs * steps)
 scaler = torch.amp.GradScaler(enabled=dev.type == 'cuda')

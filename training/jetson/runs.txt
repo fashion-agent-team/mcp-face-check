@@ -13,3 +13,10 @@ r18s7e4lr1 --arch r18 --seed 7 --epochs 4 --lr 1e-3
 r18s7e4lr2 --arch r18 --seed 7 --epochs 4 --lr 2e-4
 r18s13e4 --arch r18 --seed 13 --epochs 4 --lr 5e-4
 r18s21e4 --arch r18 --seed 21 --epochs 4 --lr 5e-4
+# 3차(23:45 결과 보고 추가): r18은 4~5에폭이 적당(s7e4 68.8, s7e6 67.0·5에폭째 69.1), 앙상블 server+r18s7e4+r18s7e6 77.1%
+# → r18 5에폭 씨앗 더 쌓기 + 더 깊은 ResNet34(onnx 83MB, 서버 속도 따로 확인)
+r18s31e5 --arch r18 --seed 31 --epochs 5 --lr 5e-4
+r34s7e5 --arch r34 --seed 7 --epochs 5 --lr 5e-4
+r18s41e5 --arch r18 --seed 41 --epochs 5 --lr 5e-4
+r34s13e5 --arch r34 --seed 13 --epochs 5 --lr 5e-4
+r18s51e5 --arch r18 --seed 51 --epochs 5 --lr 5e-4
