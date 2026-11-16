@@ -160,7 +160,7 @@ CK = OUT / 'ck.pt'; start = 0
 if CK.exists():
     c = torch.load(CK, weights_only=False, map_location=dev)
     net.load_state_dict(c['net']); opt.load_state_dict(c['opt']); sched.load_state_dict(c['sched']); scaler.load_state_dict(c['scaler'])
-    np.random.set_state(c['np']); torch.set_rng_state(c['torch']); start = c['ep'] + 1
+    np.random.set_state(c['np']); torch.set_rng_state(c['torch'].cpu().to(torch.uint8)); start = c['ep'] + 1
     print('resume from ep', start, flush=True)
 
 
