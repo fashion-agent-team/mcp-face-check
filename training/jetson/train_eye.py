@@ -14,6 +14,8 @@ ap.add_argument('--lr', type=float, default=3e-3); ap.add_argument('--batch', ty
 ap.add_argument('--min-free', type=float, default=1.0); ap.add_argument('--eval-onnx')
 ap.add_argument('--pack', default=str(HERE / 'out/pack'))
 ap.add_argument('--arch', default='small', choices=['small', 'r18', 'r34', 'r50'])
+ap.add_argument('--freeze', type=int, default=0)   # 미리 학습된 몸통 앞부분 고정: 1=conv1+layer1, 2=…+layer2, 3=…+layer3 (합성 사진에 덜 맞춰지게)
+ap.add_argument('--bblr', type=float, default=1.0)  # 몸통 학습률 배수(머리는 --lr 그대로). 0.1이면 몸통은 천천히
 ap.add_argument('--up', type=float, default=1.0)   # 미리 학습된 몸통 앞에서 조각을 키움(96x120은 ImageNet 몸통엔 작아 마지막 특징이 3x4뿐). 2면 계산 약 4배   # r18 = ImageNet으로 미리 학습된 ResNet18 몸통(합성→실사진 일반화 기대)
 args = ap.parse_args()
 PACK = pathlib.Path(args.pack); OUT = HERE / 'out/jetson' / args.name; OUT.mkdir(parents=True, exist_ok=True)
@@ -153,8 +155,18 @@ n = len(Y); idx = np.random.default_rng(0).permutation(n); va = np.sort(idx[: n 
 CK_EXISTS = (OUT / 'ck.pt').exists()
 print(args.name, args.arch, 'pairs', n, 'device', dev, 'free GB', round(mem_free_gb(), 2), flush=True)
 net = (NetR18(not CK_EXISTS, int(args.arch[1:]), args.up) if args.arch != 'small' else Net(args.width)).to(dev); opt = torch.optim.AdamW(net.parameters(), 2e-3, weight_decay=1e-4)
+FROZEN = []
+if args.arch != 'small' and args.freeze > 0:
+    FROZEN = [net.f.conv1, net.f.bn1] + [getattr(net.f, f'layer{i}') for i in range(1, args.freeze + 1)]
+    for m in FROZEN:
+        for p in m.parameters(): p.requires_grad_(False)
+if args.arch != 'small' and args.bblr != 1.0:
+    bb = [p for p in net.f.parameters() if p.requires_grad]; hd = list(net.h.parameters())
+    opt = torch.optim.AdamW([{'params': bb}, {'params': hd}], 2e-3, weight_decay=1e-4); maxlr = [args.lr * args.bblr, args.lr]
+else:
+    opt = torch.optim.AdamW([p for p in net.parameters() if p.requires_grad], 2e-3, weight_decay=1e-4); maxlr = args.lr
 steps = len(tr) // args.batch + 1
-sched = torch.optim.lr_scheduler.OneCycleLR(opt, args.lr, total_steps=args.epochs * steps)
+sched = torch.optim.lr_scheduler.OneCycleLR(opt, maxlr, total_steps=args.epochs * steps)
 scaler = torch.amp.GradScaler(enabled=dev.type == 'cuda')
 CK = OUT / 'ck.pt'; start = 0
 if CK.exists():
@@ -191,6 +203,7 @@ def save(ep):
 log = open(OUT / 'train.log', 'a')
 for ep in range(start, args.epochs):
     net.train(); tot = 0; t0 = time.time()
+    for m in FROZEN: m.eval()   # 고정한 부분은 BatchNorm 통계도 ImageNet 그대로
     order = np.random.permutation(tr)
     for s, (a, b, y) in enumerate(batches(order)):
         if s % 200 == 0 and (mem_free_gb() < args.min_free or other_job()):
@@ -221,6 +234,6 @@ torch.onnx.export(w, torch.rand(2, 3, 96, 120), str(OUT / f'eye_{args.name}.onnx
 net.to(dev)
 def sf(x):
     with torch.no_grad(): return net(t(x[:, 0]), t(x[:, 1])).float().cpu().numpy()
-res = evaluate(sf); res.update(seed=args.seed, epochs=args.epochs, width=args.width, lr=args.lr, arch=args.arch, up=args.up)
+res = evaluate(sf); res.update(seed=args.seed, epochs=args.epochs, width=args.width, lr=args.lr, arch=args.arch, up=args.up, freeze=args.freeze, bblr=args.bblr)
 json.dump(res, open(OUT / 'eval.json', 'w')); print('EVAL', json.dumps(res), flush=True)
 with open(HERE / 'out/jetson/results.jsonl', 'a') as f: f.write(json.dumps(res) + '\n')
