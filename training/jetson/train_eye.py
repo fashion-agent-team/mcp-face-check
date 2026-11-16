@@ -13,7 +13,8 @@ ap.add_argument('--epochs', type=int, default=16); ap.add_argument('--width', ty
 ap.add_argument('--lr', type=float, default=3e-3); ap.add_argument('--batch', type=int, default=64)
 ap.add_argument('--min-free', type=float, default=1.0); ap.add_argument('--eval-onnx')
 ap.add_argument('--pack', default=str(HERE / 'out/pack'))
-ap.add_argument('--arch', default='small', choices=['small', 'r18', 'r34'])   # r18 = ImageNet으로 미리 학습된 ResNet18 몸통(합성→실사진 일반화 기대)
+ap.add_argument('--arch', default='small', choices=['small', 'r18', 'r34', 'r50'])
+ap.add_argument('--up', type=float, default=1.0)   # 미리 학습된 몸통 앞에서 조각을 키움(96x120은 ImageNet 몸통엔 작아 마지막 특징이 3x4뿐). 2면 계산 약 4배   # r18 = ImageNet으로 미리 학습된 ResNet18 몸통(합성→실사진 일반화 기대)
 args = ap.parse_args()
 PACK = pathlib.Path(args.pack); OUT = HERE / 'out/jetson' / args.name; OUT.mkdir(parents=True, exist_ok=True)
 dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -58,15 +59,34 @@ class Basic(nn.Module):
         return s.relu(y + (x if s.downsample is None else s.downsample(x)))
 
 
+class Bottle(nn.Module):
+    """torchvision ResNet Bottleneck과 같은 이름"""
+    def __init__(s, i, w, st):
+        super().__init__(); o = w * 4
+        s.conv1 = nn.Conv2d(i, w, 1, bias=False); s.bn1 = nn.BatchNorm2d(w)
+        s.conv2 = nn.Conv2d(w, w, 3, st, 1, bias=False); s.bn2 = nn.BatchNorm2d(w)
+        s.conv3 = nn.Conv2d(w, o, 1, bias=False); s.bn3 = nn.BatchNorm2d(o); s.relu = nn.ReLU(inplace=True)
+        s.downsample = nn.Sequential(nn.Conv2d(i, o, 1, st, bias=False), nn.BatchNorm2d(o)) if st != 1 or i != o else None
+    def forward(s, x):
+        y = s.relu(s.bn1(s.conv1(x))); y = s.relu(s.bn2(s.conv2(y))); y = s.bn3(s.conv3(y))
+        return s.relu(y + (x if s.downsample is None else s.downsample(x)))
+
+
 class R18(nn.Module):
     """입력 BGR 0~1 → RGB·ImageNet 정규화 → ResNet18(또는 34) → 512"""
-    URLS = {18: 'https://download.pytorch.org/models/resnet18-f37072fd.pth', 34: 'https://download.pytorch.org/models/resnet34-b627a593.pth'}
-    def __init__(s, pretrained=True, depth=18):
+    URLS = {18: 'https://download.pytorch.org/models/resnet18-f37072fd.pth', 34: 'https://download.pytorch.org/models/resnet34-b627a593.pth',
+            50: 'https://download.pytorch.org/models/resnet50-11ad3fa6.pth'}
+    def __init__(s, pretrained=True, depth=18, up=1.0):
         super().__init__()
-        n = [2, 2, 2, 2] if depth == 18 else [3, 4, 6, 3]
-        def layer(i, o, st, k): return nn.Sequential(Basic(i, o, st), *[Basic(o, o, 1) for _ in range(k - 1)])
+        n = {18: [2, 2, 2, 2], 34: [3, 4, 6, 3], 50: [3, 4, 6, 3]}[depth]; s.up = up
+        if depth == 50:
+            def layer(i, w, st, k): return nn.Sequential(Bottle(i, w, st), *[Bottle(w * 4, w, 1) for _ in range(k - 1)])
+            s.layer1 = layer(64, 64, 1, n[0]); s.layer2 = layer(256, 128, 2, n[1]); s.layer3 = layer(512, 256, 2, n[2]); s.layer4 = layer(1024, 512, 2, n[3])
+        else:
+            def layer(i, o, st, k): return nn.Sequential(Basic(i, o, st), *[Basic(o, o, 1) for _ in range(k - 1)])
+            s.layer1 = layer(64, 64, 1, n[0]); s.layer2 = layer(64, 128, 2, n[1]); s.layer3 = layer(128, 256, 2, n[2]); s.layer4 = layer(256, 512, 2, n[3])
         s.conv1 = nn.Conv2d(3, 64, 7, 2, 3, bias=False); s.bn1 = nn.BatchNorm2d(64); s.relu = nn.ReLU(inplace=True); s.maxpool = nn.MaxPool2d(3, 2, 1)
-        s.layer1 = layer(64, 64, 1, n[0]); s.layer2 = layer(64, 128, 2, n[1]); s.layer3 = layer(128, 256, 2, n[2]); s.layer4 = layer(256, 512, 2, n[3])
+        s.out_dim = 2048 if depth == 50 else 512
         s.URL = s.URLS[depth]
         s.register_buffer('mean', torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)); s.register_buffer('std', torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
         if pretrained:
@@ -75,16 +95,17 @@ class R18(nn.Module):
             assert miss.missing_keys == ['mean', 'std'] and not miss.unexpected_keys, miss
     def forward(s, x):
         x = (x[:, [2, 1, 0]] - s.mean) / s.std
+        if s.up != 1.0: x = nn.functional.interpolate(x, scale_factor=s.up, mode='bilinear', align_corners=False)
         x = s.maxpool(s.relu(s.bn1(s.conv1(x))))
         x = s.layer4(s.layer3(s.layer2(s.layer1(x))))
         return x.mean((2, 3))
 
 
 class NetR18(Net):
-    def __init__(s, pretrained=True, depth=18):
+    def __init__(s, pretrained=True, depth=18, up=1.0):
         nn.Module.__init__(s)
-        s.f = R18(pretrained, depth)
-        s.h = nn.Sequential(nn.Linear(1024, 64), nn.ReLU(), nn.Linear(64, 1))
+        s.f = R18(pretrained, depth, up)
+        s.h = nn.Sequential(nn.Linear(2 * s.f.out_dim, 64), nn.ReLU(), nn.Linear(64, 1))
 
 
 class Wrap(nn.Module):
@@ -131,7 +152,7 @@ A = np.load(PACK / 'a.npy', mmap_mode='r'); B = np.load(PACK / 'b.npy', mmap_mod
 n = len(Y); idx = np.random.default_rng(0).permutation(n); va = np.sort(idx[: n // 10]); tr = idx[n // 10:]
 CK_EXISTS = (OUT / 'ck.pt').exists()
 print(args.name, args.arch, 'pairs', n, 'device', dev, 'free GB', round(mem_free_gb(), 2), flush=True)
-net = (NetR18(not CK_EXISTS, int(args.arch[1:])) if args.arch in ('r18', 'r34') else Net(args.width)).to(dev); opt = torch.optim.AdamW(net.parameters(), 2e-3, weight_decay=1e-4)
+net = (NetR18(not CK_EXISTS, int(args.arch[1:]), args.up) if args.arch != 'small' else Net(args.width)).to(dev); opt = torch.optim.AdamW(net.parameters(), 2e-3, weight_decay=1e-4)
 steps = len(tr) // args.batch + 1
 sched = torch.optim.lr_scheduler.OneCycleLR(opt, args.lr, total_steps=args.epochs * steps)
 scaler = torch.amp.GradScaler(enabled=dev.type == 'cuda')
@@ -200,6 +221,6 @@ torch.onnx.export(w, torch.rand(2, 3, 96, 120), str(OUT / f'eye_{args.name}.onnx
 net.to(dev)
 def sf(x):
     with torch.no_grad(): return net(t(x[:, 0]), t(x[:, 1])).float().cpu().numpy()
-res = evaluate(sf); res.update(seed=args.seed, epochs=args.epochs, width=args.width, lr=args.lr, arch=args.arch)
+res = evaluate(sf); res.update(seed=args.seed, epochs=args.epochs, width=args.width, lr=args.lr, arch=args.arch, up=args.up)
 json.dump(res, open(OUT / 'eval.json', 'w')); print('EVAL', json.dumps(res), flush=True)
 with open(HERE / 'out/jetson/results.jsonl', 'a') as f: f.write(json.dumps(res) + '\n')
