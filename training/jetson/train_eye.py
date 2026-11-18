@@ -3,7 +3,7 @@
 - 에폭마다 out/jetson/<이름>/ck.pt 저장 → 끊기면 같은 명령으로 이어서
 - 메모리 감시: 젯슨 남은 메모리(MemAvailable)가 --min-free GB 아래거나, 다른 스레드가 ~/gpu-train.lock을 만들면 종료 코드 75(서버·다른 학습 먼저)
 - 끝나면 eye_<이름>.onnx, 평가(eval.json: 안경·조명으로 거른 사진에서 실사진 p95 기준 검출률), R.npy(앙상블 평가용)
-사용: python3 train_eye.py --name s13 [--seed 13] [--epochs 16] [--width 1.0] [--lr 3e-3] [--batch 64] [--arch small|r18]
+사용: python3 train_eye.py --name s13 [--seed 13] [--epochs 16] [--width 1.0] [--lr 3e-3] [--batch 64] [--arch small|r18|r34|r50|effb0|convnext_t|regnet8]
       python3 train_eye.py --eval-onnx ../../src/main/resources/models/eye_makeup.onnx --name server  (지금 모델 평가만)"""
 import argparse, json, os, pathlib, sys, threading, queue, time, numpy as np, torch, torch.nn as nn
 HERE = pathlib.Path(__file__).resolve().parent.parent
@@ -13,7 +13,7 @@ ap.add_argument('--epochs', type=int, default=16); ap.add_argument('--width', ty
 ap.add_argument('--lr', type=float, default=3e-3); ap.add_argument('--batch', type=int, default=64)
 ap.add_argument('--min-free', type=float, default=1.0); ap.add_argument('--eval-onnx')
 ap.add_argument('--pack', default=str(HERE / 'out/pack'))
-ap.add_argument('--arch', default='small', choices=['small', 'r18', 'r34', 'r50'])
+ap.add_argument('--arch', default='small', choices=['small', 'r18', 'r34', 'r50', 'effb0', 'convnext_t', 'regnet8'])
 ap.add_argument('--freeze', type=int, default=0)   # 미리 학습된 몸통 앞부분 고정: 1=conv1+layer1, 2=…+layer2, 3=…+layer3 (합성 사진에 덜 맞춰지게)
 ap.add_argument('--bblr', type=float, default=1.0)  # 몸통 학습률 배수(머리는 --lr 그대로). 0.1이면 몸통은 천천히
 ap.add_argument('--up', type=float, default=1.0)   # 미리 학습된 몸통 앞에서 조각을 키움(96x120은 ImageNet 몸통엔 작아 마지막 특징이 3x4뿐). 2면 계산 약 4배   # r18 = ImageNet으로 미리 학습된 ResNet18 몸통(합성→실사진 일반화 기대)
@@ -110,6 +110,34 @@ class NetR18(Net):
         s.h = nn.Sequential(nn.Linear(2 * s.f.out_dim, 64), nn.ReLU(), nn.Linear(64, 1))
 
 
+class TVBack(nn.Module):
+    """torchvision 미리 학습된 몸통(EfficientNet-B0, ConvNeXt-T, RegNetY-800MF). 입력 BGR 0~1 → RGB·ImageNet 정규화 → 특징 평균. R18과 같은 앞뒤 처리."""
+    def __init__(s, name, pretrained=True, up=1.0):
+        super().__init__()
+        import torchvision.models as tvm
+        s.up = up
+        if name == 'effb0':
+            m = tvm.efficientnet_b0(weights=tvm.EfficientNet_B0_Weights.IMAGENET1K_V1 if pretrained else None); s.body = m.features; s.out_dim = 1280
+        elif name == 'convnext_t':
+            m = tvm.convnext_tiny(weights=tvm.ConvNeXt_Tiny_Weights.IMAGENET1K_V1 if pretrained else None); s.body = m.features; s.out_dim = 768
+        elif name == 'regnet8':
+            m = tvm.regnet_y_800mf(weights=tvm.RegNet_Y_800MF_Weights.IMAGENET1K_V2 if pretrained else None); s.body = nn.Sequential(m.stem, m.trunk_output); s.out_dim = 784
+        else:
+            raise ValueError(name)
+        s.register_buffer('mean', torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)); s.register_buffer('std', torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
+    def forward(s, x):
+        x = (x[:, [2, 1, 0]] - s.mean) / s.std
+        if s.up != 1.0: x = nn.functional.interpolate(x, scale_factor=s.up, mode='bilinear', align_corners=False)
+        return s.body(x).mean((2, 3))
+
+
+class NetTV(Net):
+    def __init__(s, name, pretrained=True, up=1.0):
+        nn.Module.__init__(s)
+        s.f = TVBack(name, pretrained, up)
+        s.h = nn.Sequential(nn.Linear(2 * s.f.out_dim, 64), nn.ReLU(), nn.Linear(64, 1))
+
+
 class Wrap(nn.Module):
     """서버 입력: [2,3,H,W] RGB 0~1 (0=사진 왼쪽 조각, 1=오른쪽 조각을 뒤집은 것, 둘 다 바깥쪽이 왼쪽). 출력: [1] 0번 − 1번"""
     def __init__(s, n): super().__init__(); s.n = n
@@ -154,9 +182,10 @@ A = np.load(PACK / 'a.npy', mmap_mode='r'); B = np.load(PACK / 'b.npy', mmap_mod
 n = len(Y); idx = np.random.default_rng(0).permutation(n); va = np.sort(idx[: n // 10]); tr = idx[n // 10:]
 CK_EXISTS = (OUT / 'ck.pt').exists()
 print(args.name, args.arch, 'pairs', n, 'device', dev, 'free GB', round(mem_free_gb(), 2), flush=True)
-net = (NetR18(not CK_EXISTS, int(args.arch[1:]), args.up) if args.arch != 'small' else Net(args.width)).to(dev); opt = torch.optim.AdamW(net.parameters(), 2e-3, weight_decay=1e-4)
+TV = ('effb0', 'convnext_t', 'regnet8')
+net = (NetTV(args.arch, not CK_EXISTS, args.up) if args.arch in TV else NetR18(not CK_EXISTS, int(args.arch[1:]), args.up) if args.arch != 'small' else Net(args.width)).to(dev); opt = torch.optim.AdamW(net.parameters(), 2e-3, weight_decay=1e-4)
 FROZEN = []
-if args.arch != 'small' and args.freeze > 0:
+if args.arch not in ('small',) + TV and args.freeze > 0:
     FROZEN = [net.f.conv1, net.f.bn1] + [getattr(net.f, f'layer{i}') for i in range(1, args.freeze + 1)]
     for m in FROZEN:
         for p in m.parameters(): p.requires_grad_(False)
