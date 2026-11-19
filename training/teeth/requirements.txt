@@ -1,0 +1,15 @@
+# Training (train.py). On a Jetson, install NVIDIA's JetPack builds of torch and
+# torchvision instead of the PyPI wheels (the PyPI ones have no Jetson CUDA).
+torch>=2.1
+torchvision>=0.16
+onnx>=1.14
+onnxscript  # needed by torch.onnx.export in recent torch
+pillow
+numpy
+
+# ONNX evaluation (eval_onnx.py). Jetson: onnxruntime-gpu from NVIDIA's Jetson Zoo.
+onnxruntime>=1.16
+
+# Only for eval_onnx.py --crop-faces (already in .venv on the Mac)
+# mediapipe
+# opencv-python

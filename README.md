@@ -1,29 +1,29 @@
 # mcp-face-check
 
-**face_check MCP 서버** · 패션 에이전트(시각장애인용 코디 도우미)의 한 부분입니다.
+**얼굴 확인 MCP 서버** · 패션 에이전트(시각장애인용 코디 도우미)의 한 부분입니다.
 
-얼굴 사진을 찍으면 화장 대칭 여부, 이에 낀 음식물 같은 것을 확인합니다.
+"얼굴 확인해 줘" → agent가 "얼굴 화장을 볼까요, 이를 확인할까요?"라고 묻고, 답에 맞는 도구 하나를 부릅니다.
+입력·출력 약속은 앱 레포 [`docs/contracts/mcp-tools.md`](https://github.com/fashion-agent-team/fashion-agent/blob/develop/docs/contracts/mcp-tools.md#mcp-face-check)에 있습니다.
 
-## 도구 (안)
+## 도구
 
-- `check_face(image)`: 화장 대칭, 이에 낀 것, 머리 정돈 상태와 위치
+| 도구 | 담당 | 하는 일 | 상태 |
+| --- | --- | --- | --- |
+| `face_makeup_check(imageBase64, landmarks, frames)` | 박창근 | 앱 ML Kit 얼굴 윤곽점(위치) + 사진 픽셀(그려진 모양·색) → 좌우 비교(눈썹 높이·꼬리·길이·두께, 입꼬리·입술 선, 볼·입술 색). 기준값은 라벨 셀카로 학습 | 동작 |
+| `teeth_check(imageBase64, mouthBox)` | 정지원 | 입 안쪽 박스로 잘라 우리가 학습한 분류 모델(MobileNetV3-Small, ONNX)을 서버에서 돌림(여백 3가지 × 좌우 뒤집기 6번 평균) → 이 사이에 낀 것 있음/없음/애매함 | 동작 (모델 v4: 합성 시험 정확도 91%, 깨끗한 이 잘못 알림 1~1.5%. 실제로 낀 사진은 고춧가루 1장으로만 확인. [training/teeth](training/teeth/README.md)) |
 
-## 지금 상태
+- 왼쪽·오른쪽은 **셀카 화면 기준**(사진 왼쪽 = 사용자 왼쪽)입니다. 앱이 사진과 윤곽점을 셀카 방향으로 뒤집어 보냅니다.
+- 앱은 얼굴을 실시간으로 비추며 구도를 안내하고, 잘 잡혀 멈춘 1초 동안 3~5장을 보냅니다. 서버는 장마다 잰 값의 중간값으로 판단합니다.
+- GPT 같은 외부 AI를 쓰지 않습니다. 얼굴·치아 사진은 개인정보라 이 서버 밖으로 나가지 않습니다. 얼굴 점은 이미 학습된 모델(ML Kit)이 찾고, "얼마나 다르면 비대칭인가"는 [training/](training/README.md)에서 라벨 붙인 셀카로 학습합니다.
+- 사진은 판단에만 쓰고 저장하지 않습니다. 치아 검사는 확률 숫자만 로그에 남깁니다.
+- 치아 모델(`src/main/resources/models/teeth_mobilenetv3.onnx`)은 FFHQ 얼굴 데이터(NVIDIA, CC BY-NC-SA 4.0)에서 입을 잘라 음식 조각을 합성한 사진으로 학습했습니다. 그래서 **비상업용**이고, 쓸 때 출처를 밝힙니다. 모델 파일에는 사진이 들어 있지 않고, 학습 사진은 레포에 올리지 않습니다. 학습 스크립트는 [training/teeth/](training/teeth/README.md)에 있습니다.
 
-없음. 앱은 "준비 중"이라고 답합니다. 사진 분석 방식은 `mcp-clothes-state`(Gemini 비전 + 프롬프트)를 그대로 본떠 만들면 됩니다.
-
-## 할 일
-
-- [ ] MCP 서버 만들기
-- [ ] Gemini 비전 프롬프트 작성 (판단 말고 보이는 사실만)
-- [ ] 앱에 얼굴 촬영 안내(전면 카메라, 거리) 추가
+개발 방법, 대칭 규칙과 기준값은 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md), 그동안 학습하고 바꿔 본 모델·방식 비교는 [docs/lab.md](docs/lab.md)를 보세요.
 
 ## 전체 구조
 
 ```
 application(fashion-agent) ─REST→ fashion-agent-gateway ─→ fashion-agent-agent ─MCP→ mcp-weather / mcp-schedule / mcp-clothes-state / mcp-face-check / mcp-closet
-                                                                                              ↓
-                                                                                              DB (계정·회원정보·일정·옷장)
 ```
 
 ## 브랜치
@@ -32,4 +32,4 @@ GitFlow를 따릅니다. `develop`에서 `feature/…` 브랜치를 따서 PR로
 
 ## 비밀 값
 
-API 키와 DB 접속 정보는 레포에 넣지 않습니다. 배포 환경의 비밀 값(Secret)으로만 둡니다.
+이 서버는 비밀 값이 필요 없습니다. 학습용 셀카(training/data)는 레포에 올리지 않습니다.
