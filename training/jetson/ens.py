@@ -10,7 +10,11 @@ def score(R):
 Rs = {p.parent.name: np.load(p) for p in sorted(J.glob('*/R.npy'))}
 Rs = {k: R / (np.std(R[:, 0]) + 1e-9) for k, R in Rs.items()}  # 모델마다 점수 크기가 달라서 실사진 퍼짐으로 맞춤
 single = sorted(((score(R), k) for k, R in Rs.items()), reverse=True)
-lines = [f'{k:<14} all {s[0]:.3f}  ' + ' '.join(f'{x:.2f}' for x in s[1]) for s, k in single]
+# 별도 평가(CelebA-HQ, eval2): 판마다 eval2.json이 있으면 옆에 붙임(고르기는 FFHQ로만)
+def chq(k):
+    f = J / k / 'eval2.json'
+    return f"  | chq {json.load(open(f))['all']:.3f}" if f.exists() else ''
+lines = [f'{k:<14} all {s[0]:.3f}  ' + ' '.join(f'{x:.2f}' for x in s[1]) + chq(k) for s, k in single]
 top = [k for _, k in single][:8]; ens = []   # 서버 모델(server)도 앙상블 후보에 넣음
 for r in (2, 3, 4):
     for c in itertools.combinations(top, r): ens.append((score(np.mean([Rs[k] for k in c], 0)), '+'.join(c)))

@@ -264,5 +264,12 @@ net.to(dev)
 def sf(x):
     with torch.no_grad(): return net(t(x[:, 0]), t(x[:, 1])).float().cpu().numpy()
 res = evaluate(sf); res.update(seed=args.seed, epochs=args.epochs, width=args.width, lr=args.lr, arch=args.arch, up=args.up, freeze=args.freeze, bblr=args.bblr)
+E2 = HERE / 'out/eval2'
+if (E2 / 'eval2_p.npy').exists():  # 별도 평가(CelebA-HQ, 원본 번호 >= 100000): 고르기엔 안 쓰고 확인용
+    P2 = np.load(E2 / 'eval2_p.npy', mmap_mode='r'); M2 = np.load(E2 / 'eval2_meta.npz'); R2 = np.zeros(P2.shape[:3], np.float32)
+    for i in range(len(P2)):
+        x = np.asarray(P2[i]).reshape(-1, 2, *P2.shape[4:]); R2[i] = sf(x).reshape(P2.shape[1:3])
+    np.save(OUT / 'R2.npy', R2); r2 = report(R2, M2); r2.pop('name', None); res['chq'] = r2
+    json.dump(dict(r2, name=args.name, ffhq_all=res['all']), open(OUT / 'eval2.json', 'w'))
 json.dump(res, open(OUT / 'eval.json', 'w')); print('EVAL', json.dumps(res), flush=True)
 with open(HERE / 'out/jetson/results.jsonl', 'a') as f: f.write(json.dumps(res) + '\n')
