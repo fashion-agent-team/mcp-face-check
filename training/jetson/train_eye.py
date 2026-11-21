@@ -16,6 +16,7 @@ ap.add_argument('--pack', default=str(HERE / 'out/pack'))
 ap.add_argument('--arch', default='small', choices=['small', 'r18', 'r34', 'r50', 'effb0', 'convnext_t', 'regnet8'])
 ap.add_argument('--freeze', type=int, default=0)   # 미리 학습된 몸통 앞부분 고정: 1=conv1+layer1, 2=…+layer2, 3=…+layer3 (합성 사진에 덜 맞춰지게)
 ap.add_argument('--bblr', type=float, default=1.0)  # 몸통 학습률 배수(머리는 --lr 그대로). 0.1이면 몸통은 천천히
+ap.add_argument('--init')   # 이 판의 eye.pt에서 출발(머리 포함). 공통 시작점 수프용
 ap.add_argument('--up', type=float, default=1.0)   # 미리 학습된 몸통 앞에서 조각을 키움(96x120은 ImageNet 몸통엔 작아 마지막 특징이 3x4뿐). 2면 계산 약 4배   # r18 = ImageNet으로 미리 학습된 ResNet18 몸통(합성→실사진 일반화 기대)
 args = ap.parse_args()
 PACK = pathlib.Path(args.pack); OUT = HERE / 'out/jetson' / args.name; OUT.mkdir(parents=True, exist_ok=True)
@@ -185,6 +186,8 @@ print(args.name, args.arch, 'pairs', n, 'device', dev, 'free GB', round(mem_free
 TV = ('effb0', 'convnext_t', 'regnet8')
 net = (NetTV(args.arch, not CK_EXISTS, args.up) if args.arch in TV else NetR18(not CK_EXISTS, int(args.arch[1:]), args.up) if args.arch != 'small' else Net(args.width)).to(dev); opt = torch.optim.AdamW(net.parameters(), 2e-3, weight_decay=1e-4)
 FROZEN = []
+if args.init and not CK_EXISTS:  # 공통 시작점: 머리·몸통·BN 통계까지 그대로 가져옴
+    net.load_state_dict(torch.load(args.init, map_location=dev)); print('init from', args.init, flush=True)
 if args.arch not in ('small',) + TV and args.freeze > 0:
     FROZEN = [net.f.conv1, net.f.bn1] + [getattr(net.f, f'layer{i}') for i in range(1, args.freeze + 1)]
     for m in FROZEN:
@@ -263,7 +266,7 @@ torch.onnx.export(w, torch.rand(2, 3, 96, 120), str(OUT / f'eye_{args.name}.onnx
 net.to(dev)
 def sf(x):
     with torch.no_grad(): return net(t(x[:, 0]), t(x[:, 1])).float().cpu().numpy()
-res = evaluate(sf); res.update(seed=args.seed, epochs=args.epochs, width=args.width, lr=args.lr, arch=args.arch, up=args.up, freeze=args.freeze, bblr=args.bblr)
+res = evaluate(sf); res.update(init=args.init, seed=args.seed, epochs=args.epochs, width=args.width, lr=args.lr, arch=args.arch, up=args.up, freeze=args.freeze, bblr=args.bblr)
 E2 = HERE / 'out/eval2'
 if (E2 / 'eval2_p.npy').exists():  # 별도 평가(CelebA-HQ, 원본 번호 >= 100000): 고르기엔 안 쓰고 확인용
     P2 = np.load(E2 / 'eval2_p.npy', mmap_mode='r'); M2 = np.load(E2 / 'eval2_meta.npz'); R2 = np.zeros(P2.shape[:3], np.float32)

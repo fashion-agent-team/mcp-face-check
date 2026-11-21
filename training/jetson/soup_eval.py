@@ -6,7 +6,7 @@
 import sys, json, glob, pathlib, argparse, numpy as np, torch, torch.nn as nn
 HERE = pathlib.Path(__file__).resolve().parent.parent
 J = HERE / 'out/jetson'
-ap = argparse.ArgumentParser(); ap.add_argument('mode', choices=['backfill', 'soup']); ap.add_argument('--k', type=int, nargs='*', default=[5, 10])
+ap = argparse.ArgumentParser(); ap.add_argument('mode', choices=['backfill', 'soup', 'list']); ap.add_argument('--names', nargs='*'); ap.add_argument('--start'); ap.add_argument('--k', type=int, nargs='*', default=[5, 10])
 ap.add_argument('--bn', type=int, default=200); ap.add_argument('--pack', default=str(HERE / 'out/pack'))
 args = ap.parse_args()
 src = open(pathlib.Path(__file__).with_name('train_eye.py')).read()
@@ -82,6 +82,21 @@ if args.mode == 'backfill':
         if f.exists() or 'chq' not in CACHE: continue
         r = score(load(name), 'chq'); r.update(name=name, ffhq_all=ff); json.dump(r, open(f, 'w'))
         print(name, 'ffhq', ff, 'chq', r['all'], flush=True)
+elif args.mode == 'list':  # 공통 시작점에서 이어 학습한 판들(--names)을 시작점(--start)과 비교
+    log = open(J / 'soup.jsonl', 'a')
+    def rec(tag, net):
+        a = score(net, 'ffhq'); b = score(net, 'chq') if 'chq' in CACHE else {}
+        log.write(json.dumps(dict(tag=tag, ffhq=a, chq=b)) + '\n'); log.flush()
+        print(f"{tag:40s} ffhq {a['all']:.3f}  chq {b.get('all', float('nan')):.3f}", flush=True); return a['all']
+    rec(f'start {args.start}', load(args.start))
+    ff = {n: json.load(open(J / n / 'eval.json'))['all'] for n in args.names}
+    for n in args.names: print(f'  {n} ffhq {ff[n]:.3f}', flush=True)
+    rec(f'uniform {len(args.names)}', avg(args.names)); rec(f'uniform {len(args.names)} +bn', bn_reset(avg(args.names), args.bn))
+    order = sorted(args.names, key=lambda n: -ff[n]); soup = [order[0]]; cur = score(load(order[0]), 'ffhq')['all']
+    for n in order[1:]:
+        a = score(avg(soup + [n]), 'ffhq')['all']
+        if a >= cur: soup.append(n); cur = a
+    rec(f'greedy ({len(soup)})', avg(soup)); rec(f'greedy ({len(soup)}) +bn', bn_reset(avg(soup), args.bn))
 else:
     R = runs(); log = open(J / 'soup.jsonl', 'a')
     def rec(tag, net):
