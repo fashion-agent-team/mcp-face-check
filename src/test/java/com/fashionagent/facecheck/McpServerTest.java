@@ -129,7 +129,7 @@ class McpServerTest {
     }
 
     private McpSchema.CallToolResult call(String tool, Map<String, Object> args) {
-        return client.callTool(new McpSchema.CallToolRequest(tool, args));
+        return client.callTool(McpSchema.CallToolRequest.builder(tool).arguments(args).build());
     }
 
     private static String text(McpSchema.CallToolResult result) {
