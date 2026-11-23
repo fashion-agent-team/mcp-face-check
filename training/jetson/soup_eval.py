@@ -6,7 +6,7 @@
 import sys, json, glob, pathlib, argparse, numpy as np, torch, torch.nn as nn
 HERE = pathlib.Path(__file__).resolve().parent.parent
 J = HERE / 'out/jetson'
-ap = argparse.ArgumentParser(); ap.add_argument('mode', choices=['backfill', 'soup', 'list']); ap.add_argument('--names', nargs='*'); ap.add_argument('--start'); ap.add_argument('--k', type=int, nargs='*', default=[5, 10])
+ap = argparse.ArgumentParser(); ap.add_argument('mode', choices=['backfill', 'soup', 'list', 'score']); ap.add_argument('--names', nargs='*'); ap.add_argument('--start'); ap.add_argument('--k', type=int, nargs='*', default=[5, 10])
 ap.add_argument('--bn', type=int, default=200); ap.add_argument('--pack', default=str(HERE / 'out/pack'))
 args = ap.parse_args()
 src = open(pathlib.Path(__file__).with_name('train_eye.py')).read()
@@ -20,7 +20,7 @@ def t(x): return torch.from_numpy(np.ascontiguousarray(x)).to(dev).permute(0, 3,
 
 
 SETS = {'ffhq': (pathlib.Path(args.pack) / 'eval_p.npy', pathlib.Path(args.pack) / 'eval_meta.npz'),
-        'chq': (HERE / 'out/eval2/eval2_p.npy', HERE / 'out/eval2/eval2_meta.npz')}
+        'chq': (pathlib.Path(__import__('os').environ.get('EVAL2DIR', HERE / 'out/eval2')) / 'eval2_p.npy', pathlib.Path(__import__('os').environ.get('EVAL2DIR', HERE / 'out/eval2')) / 'eval2_meta.npz')}
 CACHE = {k: (np.load(p, mmap_mode='r'), np.load(m)) for k, (p, m) in SETS.items() if p.exists()}
 
 
@@ -76,7 +76,11 @@ def bn_reset(net, steps):
     net.eval(); return net
 
 
-if args.mode == 'backfill':
+if args.mode == 'score':  # 지정한 판들을 두 평가로(EVAL2DIR로 별도 세트를 바꿀 수 있음)
+    for n in args.names:
+        net = load(n); a = score(net, 'ffhq'); b = score(net, 'chq')
+        print(f"{n:16s} ffhq {a['all']:.3f}  chq {b['all']:.3f} (n={b['n']})  " + ' '.join(f"{b[k]:.2f}" for k in ['shadow.3', 'shadow.5', 'shadow.7', 'liner.5', 'liner.8']), flush=True)
+elif args.mode == 'backfill':
     for name, ff in runs():
         f = J / name / 'eval2.json'
         if f.exists() or 'chq' not in CACHE: continue
