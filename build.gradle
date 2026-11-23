@@ -1,5 +1,6 @@
 plugins {
     id 'java'
+    id 'jacoco'
     id 'org.springframework.boot' version '4.0.9'
     id 'io.spring.dependency-management' version '1.1.7'
 }
@@ -41,4 +42,40 @@ tasks.named('test') {
 // 실행용 jar 하나만 만든다(Dockerfile이 mcp-face-check-*.jar를 복사).
 tasks.named('jar') {
     enabled = false
+}
+
+// 테스트 커버리지(JaCoCo). 줄 커버리지가 80% 미만이면 빌드(CI)가 실패한다.
+// 보고서: build/reports/jacoco/test/html/index.html
+jacoco {
+    toolVersion = '0.8.14'
+}
+
+tasks.named('test') {
+    finalizedBy 'jacocoTestReport'
+}
+
+tasks.named('jacocoTestReport') {
+    dependsOn 'test'
+    reports {
+        xml.required = true
+        csv.required = true
+        html.required = true
+    }
+}
+
+tasks.named('jacocoTestCoverageVerification') {
+    dependsOn 'test'
+    violationRules {
+        rule {
+            limit {
+                counter = 'LINE'
+                value = 'COVEREDRATIO'
+                minimum = 0.80
+            }
+        }
+    }
+}
+
+tasks.named('check') {
+    dependsOn 'jacocoTestCoverageVerification'
 }

@@ -32,11 +32,25 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         if: steps.code.outputs.has == 'true'
 
-      - name: 테스트
+      - name: 테스트 + 커버리지 80% 확인
         if: steps.code.outputs.has == 'true'
         run: |
           chmod +x gradlew
-          ./gradlew test --no-daemon
+          ./gradlew check --no-daemon
+      - name: 커버리지 요약
+        if: always() && steps.code.outputs.has == 'true'
+        run: |
+          f=build/reports/jacoco/test/jacocoTestReport.csv
+          if [ -f "$f" ]; then
+            awk -F, 'NR>1{lm+=$8; lc+=$9; bm+=$6; bc+=$7} END{printf "### 테스트 커버리지\n\n| 종류 | 비율 | 기준 |\n|---|---|---|\n| 줄(LINE) | %.1f%% (%d/%d) | 80%% 이상 |\n| 분기(BRANCH) | %.1f%% (%d/%d) | 참고 |\n", 100*lc/(lc+lm), lc, lc+lm, (bc+bm)?100*bc/(bc+bm):0, bc, bc+bm}' "$f" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: 커버리지 보고서 올리기
+        if: always() && steps.code.outputs.has == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: build/reports/jacoco/test
+          retention-days: 7
       - name: 실패한 테스트 보고서 올리기
         if: failure() && steps.code.outputs.has == 'true'
         uses: actions/upload-artifact@v4
