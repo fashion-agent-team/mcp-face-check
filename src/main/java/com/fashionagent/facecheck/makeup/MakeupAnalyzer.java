@@ -50,7 +50,7 @@ final class MakeupAnalyzer {
         if (framing != null) {
             return MakeupResult.retake(framing, "ok");
         }
-        if (faceLightness(s, frame, img) < t.darkLightness()) {
+        if (faceLightness(frame, img) < t.darkLightness()) {
             return MakeupResult.retake(null, "dark");
         }
 
@@ -164,7 +164,7 @@ final class MakeupAnalyzer {
         return false;
     }
 
-    private double faceLightness(Sides s, FaceFrame frame, BufferedImage img) {
+    private double faceLightness(FaceFrame frame, BufferedImage img) {
         // 두 눈 아래 ~ 입 위, 볼까지 넓게: 머리카락·배경이 덜 섞이는 곳
         LabMean m = new LabMean();
         sampleRect(img, frame, -0.9, 0.2, 0.9, 0.9, m, 0, 100);
@@ -198,9 +198,9 @@ final class MakeupAnalyzer {
         MakeupPixels.Brow br = pl != null && pr != null ? pr : landmarkBrow(rt, rb, both, 1, eyeR);
         String basis = pl != null && pr != null ? PIXELS : LANDMARKS;
 
-        Check height = check("browHeight", bl.center() - br.center(), t.browHeight(), basis, checks);
+        check("browHeight", bl.center() - br.center(), t.browHeight(), basis, checks);
         // 꼬리: 높이에서 이미 말했으면 겹쳐 말하지 않음
-        Check tail = check("browTail", bl.tail() - br.tail(), t.browTail(), basis, checks);
+        check("browTail", bl.tail() - br.tail(), t.browTail(), basis, checks);
         // 길이: 눈썹 길이 모델이 있으면 그 점수로(왼쪽이 짧으면 +라서 부호를 바꿈: 값의 부호는 긴 쪽). CelebA: 한쪽 꼬리를 지운 것
         // 검출 22% → 84%(같은 2,832장, 같은 사진 짝 새로 잡음 263 / 놓침 3). 모델이 없거나 실패하면 분할·밝기·윤곽점으로 잰 길이 비
         Double model = models.browLength().score(img, f);
@@ -268,7 +268,7 @@ final class MakeupAnalyzer {
         }
         String basis = px != null ? PIXELS : LANDMARKS;
 
-        Check corner = check("lipCorner", lm.corner(), t.lipCorner(), basis, checks);
+        check("lipCorner", lm.corner(), t.lipCorner(), basis, checks);
         // 입술 너비: 사진에서 나눈 입꼬리가 윤곽점 입꼬리보다 얼마나 더 나갔는지(IOD)를 좌우 비교. 윤곽점은 그린 선을 거의 안 따라가고
         // 웃음·고개 돌림 같은 원래 비대칭은 같이 따라가서, 빼면 "더 그린 만큼"만 남음
         // (CelebA: 좌우 흔들림 0.16 → 0.05, 한쪽 입꼬리를 밖으로 그린 것 검출 20% → 41%). 색으로 못 나누면(누드 립) 재지 않음
