@@ -101,6 +101,33 @@ class ImagesTest {
     }
 
     @Test
+    @DisplayName("Given 몇 KB인데 1만×1만 픽셀인 PNG When 풀면 Then 다 풀지 않고 건너뛰며 읽어 2500px로 받는다")
+    void hugeDimensionsAreSubsampled() throws Exception {
+        // given: 흑백 1비트라 압축하면 수십 KB
+        BufferedImage huge = new BufferedImage(10_000, 10_000, BufferedImage.TYPE_BYTE_BINARY);
+        var out = new ByteArrayOutputStream();
+        ImageIO.write(huge, "png", out);
+        String b64 = Base64.getEncoder().encodeToString(out.toByteArray());
+        assertThat(b64.length()).isLessThan(200_000);
+
+        // when
+        BufferedImage img = Images.decode(b64, MAX);
+
+        // then: 10000 / 2048 = 4칸씩 건너뜀
+        assertThat(img.getWidth()).isEqualTo(2500);
+        assertThat(img.getHeight()).isEqualTo(2500);
+    }
+
+    @Test
+    @DisplayName("Given 폰 사진 크기(4032×3024) When 풀면 Then 줄이지 않고 그대로 읽는다(판정이 바뀌지 않음)")
+    void phoneSizeIsNotSubsampled() throws Exception {
+        BufferedImage img = Images.decode(jpeg(4032, 3024, Color.GRAY), MAX);
+
+        assertThat(img.getWidth()).isEqualTo(4032);
+        assertThat(img.getHeight()).isEqualTo(3024);
+    }
+
+    @Test
     @DisplayName("Lab: 흰색은 L≈100·a,b≈0, 검정은 L=0, 빨강은 a가 크게 +")
     void labKnownColors() {
         double[] white = Images.lab(0xFFFFFF);
