@@ -276,3 +276,4 @@ if (E2 / 'eval2_p.npy').exists():  # 별도 평가(CelebA-HQ, 원본 번호 >= 1
     json.dump(dict(r2, name=args.name, ffhq_all=res['all']), open(OUT / 'eval2.json', 'w'))
 json.dump(res, open(OUT / 'eval.json', 'w')); print('EVAL', json.dumps(res), flush=True)
 with open(HERE / 'out/jetson/results.jsonl', 'a') as f: f.write(json.dumps(res) + '\n')
+CK.unlink(missing_ok=True)   # 끝난 판의 이어 하기 파일(약 135MB)은 지움(eye.pt·onnx는 남김). 젯슨 디스크가 찬 적 있음
