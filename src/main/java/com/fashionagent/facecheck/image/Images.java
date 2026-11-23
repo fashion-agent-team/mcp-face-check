@@ -5,7 +5,12 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.util.Base64;
+import java.util.Iterator;
+
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReadParam;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
 
 /** 사진 base64 풀기와 색 계산. 사진은 메모리에서만 쓰고 저장하지 않습니다. */
 public final class Images {
@@ -32,13 +37,48 @@ public final class Images {
             throw new FaceCheckException("bad_image", "사진을 읽지 못했어요.");
         }
         try {
-            BufferedImage img = ImageIO.read(new ByteArrayInputStream(bytes));
+            BufferedImage img = read(bytes, DECODE_MAX_SIDE);
             if (img == null || img.getWidth() < 32 || img.getHeight() < 32) {
                 throw new FaceCheckException("bad_image", "사진을 읽지 못했어요.");
             }
             return img;
-        } catch (IOException e) {
+        } catch (IOException | RuntimeException e) {
+            if (e instanceof FaceCheckException fe) {
+                throw fe;
+            }
             throw new FaceCheckException("bad_image", "사진을 읽지 못했어요.");
+        }
+    }
+
+    /**
+     * 사진을 풀 때 긴 변 기준. 이보다 2배 이상 큰 사진은 건너뛰며 읽습니다(서브샘플링). 몇 KB짜리 PNG가 4만×4만 픽셀이면
+     * 그대로 풀 때 수 GB가 들어 서버가 멈추는 것을 막습니다. 폰 사진(4032px까지)은 그대로 읽어 판정이 바뀌지 않습니다.
+     */
+    static final int DECODE_MAX_SIDE = 2048;
+
+    /** 크기를 먼저 읽고, 긴 변이 maxSide의 2배 이상이면 건너뛰며 읽습니다. 읽을 수 없으면 null. */
+    static BufferedImage read(byte[] bytes, int maxSide) throws IOException {
+        try (ImageInputStream in = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
+            if (in == null) {
+                return null;
+            }
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(in);
+            if (!readers.hasNext()) {
+                return null;
+            }
+            ImageReader reader = readers.next();
+            try {
+                reader.setInput(in, true, true);
+                int longSide = Math.max(reader.getWidth(0), reader.getHeight(0));
+                ImageReadParam param = reader.getDefaultReadParam();
+                int step = Math.max(1, longSide / maxSide);
+                if (step > 1) {
+                    param.setSourceSubsampling(step, step, 0, 0);
+                }
+                return reader.read(0, param);
+            } finally {
+                reader.dispose();
+            }
         }
     }
 
