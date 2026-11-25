@@ -1,0 +1,67 @@
+# 의존성 취약점 검사. 이 레포가 쓰는 라이브러리(Gradle 전체 의존성 + 파이썬 requirements)를
+# OSV(구글 공개 취약점 DB, GitHub·PyPI 보안 공지 포함)와 맞춰 봅니다. 알려진 취약점이 있으면 빨간 X가 뜹니다.
+# 새 취약점은 코드를 안 바꿔도 생기므로 매주 월요일 아침에도 한 번 돕니다.
+# 예외가 필요하면 osv-scanner.toml에 이유·만료일과 함께 적습니다.
+name: 의존성 취약점 검사
+
+on:
+  pull_request:
+  push:
+    branches: [develop, main]
+  schedule:
+    - cron: '0 0 * * 1' # 매주 월요일 09:00 KST
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deps-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  osv:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+
+      - name: osv-scanner 설치
+        run: go install github.com/google/osv-scanner/v2/cmd/osv-scanner@v2.7.1
+
+      # build.gradle에는 직접 쓴 라이브러리만 있어서, 따라 들어오는 것(전이 의존성)까지 보려면
+      # Gradle이 실제로 고른 버전 목록(gradle.lockfile)을 잠깐 만들어 검사합니다. 레포에는 올리지 않습니다.
+      - name: 실제로 쓰는 버전 목록 만들기 (gradle.lockfile)
+        run: |
+          chmod +x gradlew
+          cat > "$RUNNER_TEMP/lock.gradle" <<'GRADLE'
+          allprojects { dependencyLocking { lockAllConfigurations() } }
+          GRADLE
+          ./gradlew -q --no-daemon -I "$RUNNER_TEMP/lock.gradle" dependencies --write-locks > /dev/null
+          echo "검사할 라이브러리: $(grep -vc '^#\|^empty=' gradle.lockfile)개"
+
+      # 파이썬 requirements는 '>=' 범위의 가장 낮은 버전을 기준으로 봅니다(그 버전까지 설치될 수 있으므로).
+      # training/은 노트북·젯슨에서 학습할 때만 쓰고 서버 이미지에 안 들어가서 뺍니다.
+      - name: 취약점 검사 (osv-scanner)
+        run: |
+          set +e
+          cfg=""; [ -f osv-scanner.toml ] && cfg="--config osv-scanner.toml"
+          ~/go/bin/osv-scanner scan source -r --no-resolve --x-exclude training $cfg --format markdown --output osv.md . > osv.log 2>&1
+          code=$?
+          { echo "### 의존성 취약점 검사"; echo; cat osv.md; } | tee -a "$GITHUB_STEP_SUMMARY"
+          grep -E 'Scanned|Filtered|rror' osv.log || true
+          # 0: 없음, 1: 취약점 있음, 128: 검사할 파일 없음
+          if [ "$code" = 128 ]; then echo "검사할 의존성 파일이 없습니다."; exit 0; fi
+          exit $code
