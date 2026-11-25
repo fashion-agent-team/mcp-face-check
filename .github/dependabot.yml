@@ -1,0 +1,35 @@
+# Dependabot: 라이브러리에 새 버전·보안 패치가 나오면 develop으로 PR을 대신 열어 줍니다.
+# PR이 너무 많아지지 않게 생태계마다 한 PR로 묶고(groups), 한 달에 한 번만 봅니다.
+# 보안 패치 PR(Dependabot security updates)은 레포 Settings > Code security에서 켜면 주기와 상관없이 바로 열립니다.
+version: 2
+updates:
+  - package-ecosystem: gradle
+    directory: "/"
+    target-branch: develop
+    schedule:
+      interval: monthly
+      timezone: Asia/Seoul
+    open-pull-requests-limit: 3
+    groups:
+      gradle-all:
+        patterns: ["*"]
+  - package-ecosystem: docker
+    directory: "/"
+    target-branch: develop
+    schedule:
+      interval: monthly
+      timezone: Asia/Seoul
+    open-pull-requests-limit: 3
+    groups:
+      docker-all:
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directory: "/"
+    target-branch: develop
+    schedule:
+      interval: monthly
+      timezone: Asia/Seoul
+    open-pull-requests-limit: 3
+    groups:
+      actions-all:
+        patterns: ["*"]
